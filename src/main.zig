@@ -66,29 +66,86 @@ pub fn main() !void {
     var stream = try net.tcpConnectToAddress(address);
     defer stream.close();
 
-    // Example: Send a power status query command
-    const data = [_]u8{};
-    var packet = MdcPacket.init(0x11, 0x00, &data); // Power Status command, Display ID 0
-    const serialized = try packet.serialize(allocator);
-    defer allocator.free(serialized);
+    // Example 1: Power Status Query (aa:11:00:00:11)
+    {
+        var packet = MdcPacket.init(0x11, 0x00, &[_]u8{});
+        const bytes = try packet.serialize(allocator);
+        defer allocator.free(bytes);
 
-    std.debug.print("Sending request: ", .{});
-    for (serialized) |byte| {
-        std.debug.print("{x:0>2} ", .{byte});
+        std.debug.print("Power Status Query: ", .{});
+        for (bytes) |byte| {
+            std.debug.print("{x:0>2}:", .{byte});
+        }
+        std.debug.print("\n", .{});
+
+        // Send the packet
+        _ = try stream.write(bytes);
+
+        // Read response
+        var buffer: [1024]u8 = undefined;
+        const bytes_read = try stream.read(&buffer);
+
+        if (bytes_read > 0) {
+            std.debug.print("Received response: ", .{});
+            for (buffer[0..bytes_read]) |byte| {
+                std.debug.print("{x:0>2} ", .{byte});
+            }
+        }
+        std.debug.print("\n", .{});
     }
-    std.debug.print("\n", .{});
 
-    // Send the packet
-    _ = try stream.write(serialized);
+    // Example 2: Power On Command (aa:11:00:01:01:13)
+    {
+        var packet = MdcPacket.init(0x11, 0x00, &[_]u8{0x01});
+        const bytes = try packet.serialize(allocator);
+        defer allocator.free(bytes);
 
-    // Read response
-    var buffer: [1024]u8 = undefined;
-    const bytes_read = try stream.read(&buffer);
+        std.debug.print("Power On Command: ", .{});
+        for (bytes) |byte| {
+            std.debug.print("{x:0>2}:", .{byte});
+        }
+        std.debug.print("\n", .{});
+        // Send the packet
+        _ = try stream.write(bytes);
 
-    if (bytes_read > 0) {
-        std.debug.print("Received response: ", .{});
-        for (buffer[0..bytes_read]) |byte| {
-            std.debug.print("{x:0>2} ", .{byte});
+        // Read response
+        var buffer: [1024]u8 = undefined;
+        const bytes_read = try stream.read(&buffer);
+
+        if (bytes_read > 0) {
+            std.debug.print("Received response: ", .{});
+            for (buffer[0..bytes_read]) |byte| {
+                std.debug.print("{x:0>2} ", .{byte});
+            }
+        }
+        std.debug.print("\n", .{});
+    }
+
+    // Example 3: Set Launcher URL (aa:c7:00:13:82 + "http://example.com" + checksum)
+    {
+        const url = "http://example.com";
+        var packet = MdcPacket.init(0xC7, 0x00, &[_]u8{0x82} ++ url);
+        const bytes = try packet.serialize(allocator);
+        defer allocator.free(bytes);
+
+        std.debug.print("Set Launcher URL: ", .{});
+        for (bytes) |byte| {
+            std.debug.print("{x:0>2}:", .{byte});
+        }
+        std.debug.print("\n", .{});
+
+        // Send the packet
+        _ = try stream.write(bytes);
+
+        // Read response
+        var buffer: [1024]u8 = undefined;
+        const bytes_read = try stream.read(&buffer);
+
+        if (bytes_read > 0) {
+            std.debug.print("Received response: ", .{});
+            for (buffer[0..bytes_read]) |byte| {
+                std.debug.print("{x:0>2} ", .{byte});
+            }
         }
         std.debug.print("\n", .{});
     }

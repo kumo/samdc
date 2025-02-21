@@ -1,5 +1,6 @@
 const std = @import("std");
 const net = std.net;
+const testing = std.testing;
 
 pub const CommandType = enum(u8) {
     Power = 0x11,
@@ -219,5 +220,77 @@ pub fn main() !void {
             }
         }
         std.debug.print("\n", .{});
+    }
+}
+
+test "MdcPacket - Power Status Query" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const packet = MdcPacket.init(.{ .Power = .Status }, 0);
+    const bytes = try packet.serialize(allocator);
+
+    try testing.expectEqual(@as(usize, 5), bytes.len);
+    try testing.expectEqual(@as(u8, 0xAA), bytes[0]); // Header
+    try testing.expectEqual(@as(u8, 0x11), bytes[1]); // Power command
+    try testing.expectEqual(@as(u8, 0x00), bytes[2]); // Display ID
+    try testing.expectEqual(@as(u8, 0x00), bytes[3]); // Length
+    try testing.expectEqual(@as(u8, 0x11), bytes[4]); // Checksum
+}
+
+test "MdcPacket - Power On Command" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const packet = MdcPacket.init(.{ .Power = .{ .Set = true } }, 0);
+    const bytes = try packet.serialize(allocator);
+
+    try testing.expectEqual(@as(usize, 6), bytes.len);
+    try testing.expectEqual(@as(u8, 0xAA), bytes[0]); // Header
+    try testing.expectEqual(@as(u8, 0x11), bytes[1]); // Power command
+    try testing.expectEqual(@as(u8, 0x00), bytes[2]); // Display ID
+    try testing.expectEqual(@as(u8, 0x01), bytes[3]); // Length
+    try testing.expectEqual(@as(u8, 0x01), bytes[4]); // Data (ON)
+    try testing.expectEqual(@as(u8, 0x13), bytes[5]); // Checksum
+}
+
+test "MdcPacket - Launcher URL Status Query" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const packet = MdcPacket.init(.{ .LauncherUrl = .Status }, 0);
+    const bytes = try packet.serialize(allocator);
+
+    try testing.expectEqual(@as(usize, 6), bytes.len);
+    try testing.expectEqual(@as(u8, 0xAA), bytes[0]); // Header
+    try testing.expectEqual(@as(u8, 0xc7), bytes[1]); // Power command
+    try testing.expectEqual(@as(u8, 0x00), bytes[2]); // Display ID
+    try testing.expectEqual(@as(u8, 0x01), bytes[3]); // Length
+    try testing.expectEqual(@as(u8, 0x82), bytes[4]); // Data
+    try testing.expectEqual(@as(u8, 0x4a), bytes[5]); // Checksum
+}
+
+test "MdcPacket - Launcher URL http://example.com Command" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const url = "http://example.com";
+    const packet = MdcPacket.init(.{ .LauncherUrl = .{ .Set = url } }, 0);
+    const bytes = try packet.serialize(allocator);
+
+    try testing.expectEqual(@as(usize, 24), bytes.len);
+    try testing.expectEqual(@as(u8, 0xAA), bytes[0]); // Header
+    try testing.expectEqual(@as(u8, 0xc7), bytes[1]); // Power command
+    try testing.expectEqual(@as(u8, 0x00), bytes[2]); // Display ID
+    try testing.expectEqual(@as(u8, 0x13), bytes[3]); // Length
+    try testing.expectEqual(@as(u8, 0x82), bytes[4]); // Data
+    try testing.expectEqual(@as(u8, 0x0d), bytes[23]); // Checksum
+
+    inline for (5.., url) |i, byte| {
+        try testing.expectEqual(@as(u8, byte), bytes[i]);
     }
 }

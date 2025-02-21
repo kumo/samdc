@@ -2,6 +2,18 @@ const std = @import("std");
 const net = std.net;
 const testing = std.testing;
 
+pub const MdcError = error{
+    PacketTooShort,
+    InvalidResponseType,
+    InvalidCommand,
+    InvalidDataLength,
+    InvalidChecksum,
+    WrongCommandType,
+    InvalidHeader,
+    DataTooLong,
+    BufferTooSmall,
+};
+
 pub const CommandType = enum(u8) {
     Power = 0x11,
     LauncherUrl = 0xC7,
@@ -390,4 +402,43 @@ test "MdcPacket - Launcher URL http://example.com Command" {
     inline for (5.., url) |i, byte| {
         try testing.expectEqual(@as(u8, byte), bytes[i]);
     }
+}
+
+test "Response - Parse Power Status" {
+    const response_bytes = [_]u8{ 0xAA, 0xFF, 0x00, 0x03, 0x41, 0x11, 0x01, 0x55 };
+    var response = try Response.init(&response_bytes, testing.allocator);
+    defer response.deinit();
+
+    try testing.expectEqual(ResponseType.Ack, response.response_type);
+    try testing.expectEqual(CommandType.Power, response.command);
+    try testing.expectEqual(@as(u8, 0x00), response.display_id);
+    const is_on = try response.getPowerStatus();
+    try testing.expect(is_on);
+}
+
+test "Response - Missing Headers" {
+    const response_bytes = [_]u8{ 0x00, 0x00, 0x00, 0x03, 0x41, 0x11, 0x01, 0x00 }; // Wrong checksum
+    try testing.expectError(MdcError.InvalidHeader, Response.init(&response_bytes, testing.allocator));
+}
+
+test "Response - Invalid Checksum" {
+    const response_bytes = [_]u8{ 0xAA, 0xFF, 0x00, 0x03, 0x41, 0x11, 0x01, 0x00 }; // Wrong checksum
+    try testing.expectError(MdcError.InvalidChecksum, Response.init(&response_bytes, testing.allocator));
+}
+
+test "Response - Packet Too Short" {
+    const response_bytes = [_]u8{ 0xAA, 0xFF, 0x00, 0x41, 0x11, 0x00 }; // Too short
+    try testing.expectError(MdcError.PacketTooShort, Response.init(&response_bytes, testing.allocator));
+}
+
+test "MdcPacket - URL Too Long" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var long_url: [256]u8 = undefined;
+    @memset(&long_url, 'a');
+
+    const packet = MdcPacket.init(.{ .LauncherUrl = .{ .Set = &long_url } }, 0);
+    try testing.expectError(MdcError.DataTooLong, packet.serialize(allocator));
 }

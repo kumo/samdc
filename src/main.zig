@@ -1,56 +1,98 @@
 const std = @import("std");
 const net = std.net;
 
-// MDC packet structure
-const MdcPacket = struct {
-    header: u8 = 0xAA, // Fixed header for MDC
-    command: u8,
-    display_id: u8 = 0,
-    data: []const u8,
+pub const CommandType = enum(u8) {
+    Power = 0x11,
+    LauncherUrl = 0xC7,
+};
 
-    pub fn init(command: u8, display_id: u8, data: []const u8) MdcPacket {
-        return MdcPacket{
+pub const PowerData = union(enum) {
+    Status, // No data needed for status query
+    Set: bool, // true = on, false = off
+};
+
+pub const LauncherData = union(enum) {
+    Status,
+    Set: []const u8,
+};
+
+pub const Command = union(CommandType) {
+    Power: PowerData,
+    LauncherUrl: LauncherData,
+
+    pub fn getCommandData(self: Command, allocator: std.mem.Allocator) ![]const u8 {
+        // Determine the data to return
+        const data = switch (self) {
+            .Power => |power| switch (power) {
+                .Status => &[_]u8{}, // Static empty slice
+                .Set => |on| &[_]u8{if (on) 0x01 else 0x00}, // Static slice
+            },
+            .LauncherUrl => |launcher| switch (launcher) {
+                .Status => &[_]u8{0x82}, // Static slice
+                .Set => |url| return blk: {
+                    var result = try allocator.alloc(u8, url.len + 1);
+                    result[0] = 0x82;
+                    @memcpy(result[1 .. url.len + 1], url);
+                    break :blk result;
+                },
+            },
+        };
+
+        return allocator.dupe(u8, data);
+    }
+};
+
+// MDC packet structure
+pub const MdcPacket = struct {
+    header: u8 = 0xAA, // Fixed header for MDC
+    command: Command,
+    display_id: u8 = 0,
+
+    pub fn init(command: Command, display_id: u8) MdcPacket {
+        return .{
             .command = command,
             .display_id = display_id,
-            .data = data,
         };
     }
 
-    pub fn calculateChecksum(self: MdcPacket) u8 {
+    pub fn calculateChecksum(self: MdcPacket, data: []const u8) u8 {
         var sum: u32 = 0;
 
         // Sum all bytes except header and checksum
-        sum += self.command;
+        sum += @intFromEnum(@as(CommandType, self.command));
         sum += self.display_id;
-        sum += @as(u8, @intCast(self.data.len)); // Length byte
+        sum += @as(u8, @intCast(data.len)); // Length byte
 
         // Add all data bytes
-        for (self.data) |byte| {
+        for (data) |byte| {
             sum += byte;
         }
 
         // Discard anything over 256 (keep only the lowest byte)
-        return @as(u8, @truncate(sum));
+        return @truncate(sum);
     }
 
     pub fn serialize(self: MdcPacket, allocator: std.mem.Allocator) ![]u8 {
-        const data_length = @as(u8, @intCast(self.data.len));
-        const total_length = 5 + self.data.len; // header + command + id + length + data + checksum
+        // Get the command data (may allocate memory)
+        const data = try self.command.getCommandData(allocator);
+        defer allocator.free(data);
+
+        const total_length = 5 + data.len; // header + cmd + id + len + data + checksum
 
         var buffer = try allocator.alloc(u8, total_length);
 
         buffer[0] = self.header;
-        buffer[1] = self.command;
+        buffer[1] = @intFromEnum(@as(CommandType, self.command));
         buffer[2] = self.display_id;
-        buffer[3] = data_length;
+        buffer[3] = @intCast(data.len);
 
         // Copy data if any
-        if (data_length > 0) {
-            @memcpy(buffer[4..][0..data_length], self.data);
+        if (data.len > 0) {
+            @memcpy(buffer[4..][0..data.len], data);
         }
 
         // Calculate and append checksum
-        buffer[total_length - 1] = self.calculateChecksum();
+        buffer[total_length - 1] = self.calculateChecksum(data);
 
         return buffer;
     }
@@ -68,7 +110,7 @@ pub fn main() !void {
 
     // Example 1: Power Status Query (aa:11:00:00:11)
     {
-        var packet = MdcPacket.init(0x11, 0x00, &[_]u8{});
+        const packet = MdcPacket.init(.{ .Power = .Status }, 0);
         const bytes = try packet.serialize(allocator);
         defer allocator.free(bytes);
 
@@ -96,7 +138,7 @@ pub fn main() !void {
 
     // Example 2: Power On Command (aa:11:00:01:01:13)
     {
-        var packet = MdcPacket.init(0x11, 0x00, &[_]u8{0x01});
+        const packet = MdcPacket.init(.{ .Power = .{ .Set = true } }, 0);
         const bytes = try packet.serialize(allocator);
         defer allocator.free(bytes);
 
@@ -105,6 +147,7 @@ pub fn main() !void {
             std.debug.print("{x:0>2}:", .{byte});
         }
         std.debug.print("\n", .{});
+
         // Send the packet
         _ = try stream.write(bytes);
 
@@ -124,7 +167,7 @@ pub fn main() !void {
     // Example 3: Set Launcher URL (aa:c7:00:13:82 + "http://example.com" + checksum)
     {
         const url = "http://example.com";
-        var packet = MdcPacket.init(0xC7, 0x00, &[_]u8{0x82} ++ url);
+        const packet = MdcPacket.init(.{ .LauncherUrl = .{ .Set = url } }, 0);
         const bytes = try packet.serialize(allocator);
         defer allocator.free(bytes);
 

@@ -164,7 +164,35 @@ pub fn main() !void {
         std.debug.print("\n", .{});
     }
 
-    // Example 3: Set Launcher URL (aa:c7:00:13:82 + "http://example.com" + checksum)
+    // Example 3: Launcher URL Status Query (aa:c7:00:01:82:4a)
+    {
+        const packet = MdcPacket.init(.{ .LauncherUrl = .Status }, 0);
+        const bytes = try packet.serialize(allocator);
+        defer allocator.free(bytes);
+
+        std.debug.print("Launcher URL Status Query: ", .{});
+        for (bytes) |byte| {
+            std.debug.print("{x:0>2}:", .{byte});
+        }
+        std.debug.print("\n", .{});
+
+        // Send the packet
+        _ = try stream.write(bytes);
+
+        // Read response
+        var buffer: [1024]u8 = undefined;
+        const bytes_read = try stream.read(&buffer);
+
+        if (bytes_read > 0) {
+            std.debug.print("Received response: ", .{});
+            for (buffer[0..bytes_read]) |byte| {
+                std.debug.print("{x:0>2} ", .{byte});
+            }
+        }
+        std.debug.print("\n", .{});
+    }
+
+    // Example 4: Set Launcher URL (aa:c7:00:13:82 + "http://example.com" + checksum)
     {
         const url = "http://example.com";
         const packet = MdcPacket.init(.{ .LauncherUrl = .{ .Set = url } }, 0);

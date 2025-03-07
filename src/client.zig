@@ -11,7 +11,7 @@ pub const MdcClient = struct {
     display_id: u8,
     socket: ?net.Stream,
 
-    pub fn init(allocator: std.mem.Allocator, address: net.Address, display_id: u8) !MdcClient {
+    pub fn init(allocator: std.mem.Allocator, address: net.Address, display_id: u8) MdcClient {
         return MdcClient{
             .allocator = allocator,
             .address = address,

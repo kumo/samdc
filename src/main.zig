@@ -1,117 +1,11 @@
 const std = @import("std");
 const net = std.net;
 const testing = std.testing;
-
-pub const MdcError = error{
-    PacketTooShort,
-    InvalidResponseType,
-    InvalidCommand,
-    InvalidDataLength,
-    InvalidChecksum,
-    WrongCommandType,
-    InvalidHeader,
-    DataTooLong,
-    BufferTooSmall,
-};
-
-pub const CommandType = enum(u8) {
-    Power = 0x11,
-    LauncherUrl = 0xC7,
-};
-
-pub const PowerData = union(enum) {
-    Status, // No data needed for status query
-    Set: bool, // true = on, false = off
-};
-
-pub const LauncherData = union(enum) {
-    Status,
-    Set: []const u8,
-};
-
-pub const Command = union(CommandType) {
-    Power: PowerData,
-    LauncherUrl: LauncherData,
-
-    pub fn getCommandData(self: Command, allocator: std.mem.Allocator) ![]const u8 {
-        // Determine the data to return
-        const data = switch (self) {
-            .Power => |power| switch (power) {
-                .Status => &[_]u8{}, // Static empty slice
-                .Set => |on| &[_]u8{if (on) 0x01 else 0x00}, // Static slice
-            },
-            .LauncherUrl => |launcher| switch (launcher) {
-                .Status => &[_]u8{0x82}, // Static slice
-                .Set => |url| return blk: {
-                    if (url.len > 200) return MdcError.DataTooLong;
-
-                    var result = try allocator.alloc(u8, url.len + 1);
-                    result[0] = 0x82;
-                    @memcpy(result[1 .. url.len + 1], url);
-                    break :blk result;
-                },
-            },
-        };
-
-        return allocator.dupe(u8, data);
-    }
-};
-
-// MDC packet structure
-pub const MdcPacket = struct {
-    header: u8 = 0xAA, // Fixed header for MDC
-    command: Command,
-    display_id: u8 = 0,
-
-    pub fn init(command: Command, display_id: u8) MdcPacket {
-        return .{
-            .command = command,
-            .display_id = display_id,
-        };
-    }
-
-    pub fn calculateChecksum(self: MdcPacket, data: []const u8) u8 {
-        var sum: u32 = 0;
-
-        // Sum all bytes except header and checksum
-        sum += @intFromEnum(@as(CommandType, self.command));
-        sum += self.display_id;
-        sum += @as(u8, @intCast(data.len)); // Length byte
-
-        // Add all data bytes
-        for (data) |byte| {
-            sum += byte;
-        }
-
-        // Discard anything over 256 (keep only the lowest byte)
-        return @truncate(sum);
-    }
-
-    pub fn serialize(self: MdcPacket, allocator: std.mem.Allocator) ![]u8 {
-        // Get the command data (may allocate memory)
-        const data = try self.command.getCommandData(allocator);
-        defer allocator.free(data);
-
-        const total_length = 5 + data.len; // header + cmd + id + len + data + checksum
-
-        var buffer = try allocator.alloc(u8, total_length);
-
-        buffer[0] = self.header;
-        buffer[1] = @intFromEnum(@as(CommandType, self.command));
-        buffer[2] = self.display_id;
-        buffer[3] = @intCast(data.len);
-
-        // Copy data if any
-        if (data.len > 0) {
-            @memcpy(buffer[4..][0..data.len], data);
-        }
-
-        // Calculate and append checksum
-        buffer[total_length - 1] = self.calculateChecksum(data);
-
-        return buffer;
-    }
-};
+const protocol = @import("protocol.zig");
+const CommandType = protocol.CommandType;
+const MdcError = protocol.MdcError;
+const command = @import("command.zig");
+const MdcCommand = command.MdcCommand;
 
 pub const ResponseType = enum(u8) {
     Ack = 0x41, // 'A'
@@ -202,7 +96,7 @@ pub fn main() !void {
 
     // Example 1: Power Status Query (aa:11:00:00:11)
     {
-        const packet = MdcPacket.init(.{ .Power = .Status }, 0);
+        const packet = MdcCommand.init(.{ .Power = .Status }, 0);
         const bytes = try packet.serialize(allocator);
         defer allocator.free(bytes);
 
@@ -238,7 +132,7 @@ pub fn main() !void {
 
     // Example 2: Power On Command (aa:11:00:01:01:13)
     {
-        const packet = MdcPacket.init(.{ .Power = .{ .Set = true } }, 0);
+        const packet = MdcCommand.init(.{ .Power = .{ .Set = true } }, 0);
         const bytes = try packet.serialize(allocator);
         defer allocator.free(bytes);
 
@@ -266,7 +160,7 @@ pub fn main() !void {
 
     // Example 3: Launcher URL Status Query (aa:c7:00:01:82:4a)
     {
-        const packet = MdcPacket.init(.{ .LauncherUrl = .Status }, 0);
+        const packet = MdcCommand.init(.{ .LauncherUrl = .Status }, 0);
         const bytes = try packet.serialize(allocator);
         defer allocator.free(bytes);
 
@@ -305,7 +199,7 @@ pub fn main() !void {
     // Example 4: Set Launcher URL (aa:c7:00:13:82 + "http://example.com" + checksum)
     {
         const url = "http://example.com";
-        const packet = MdcPacket.init(.{ .LauncherUrl = .{ .Set = url } }, 0);
+        const packet = MdcCommand.init(.{ .LauncherUrl = .{ .Set = url } }, 0);
         const bytes = try packet.serialize(allocator);
         defer allocator.free(bytes);
 
@@ -329,78 +223,6 @@ pub fn main() !void {
             }
         }
         std.debug.print("\n", .{});
-    }
-}
-
-test "MdcPacket - Power Status Query" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    const packet = MdcPacket.init(.{ .Power = .Status }, 0);
-    const bytes = try packet.serialize(allocator);
-
-    try testing.expectEqual(@as(usize, 5), bytes.len);
-    try testing.expectEqual(@as(u8, 0xAA), bytes[0]); // Header
-    try testing.expectEqual(@as(u8, 0x11), bytes[1]); // Power command
-    try testing.expectEqual(@as(u8, 0x00), bytes[2]); // Display ID
-    try testing.expectEqual(@as(u8, 0x00), bytes[3]); // Length
-    try testing.expectEqual(@as(u8, 0x11), bytes[4]); // Checksum
-}
-
-test "MdcPacket - Power On Command" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    const packet = MdcPacket.init(.{ .Power = .{ .Set = true } }, 0);
-    const bytes = try packet.serialize(allocator);
-
-    try testing.expectEqual(@as(usize, 6), bytes.len);
-    try testing.expectEqual(@as(u8, 0xAA), bytes[0]); // Header
-    try testing.expectEqual(@as(u8, 0x11), bytes[1]); // Power command
-    try testing.expectEqual(@as(u8, 0x00), bytes[2]); // Display ID
-    try testing.expectEqual(@as(u8, 0x01), bytes[3]); // Length
-    try testing.expectEqual(@as(u8, 0x01), bytes[4]); // Data (ON)
-    try testing.expectEqual(@as(u8, 0x13), bytes[5]); // Checksum
-}
-
-test "MdcPacket - Launcher URL Status Query" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    const packet = MdcPacket.init(.{ .LauncherUrl = .Status }, 0);
-    const bytes = try packet.serialize(allocator);
-
-    try testing.expectEqual(@as(usize, 6), bytes.len);
-    try testing.expectEqual(@as(u8, 0xAA), bytes[0]); // Header
-    try testing.expectEqual(@as(u8, 0xc7), bytes[1]); // Power command
-    try testing.expectEqual(@as(u8, 0x00), bytes[2]); // Display ID
-    try testing.expectEqual(@as(u8, 0x01), bytes[3]); // Length
-    try testing.expectEqual(@as(u8, 0x82), bytes[4]); // Data
-    try testing.expectEqual(@as(u8, 0x4a), bytes[5]); // Checksum
-}
-
-test "MdcPacket - Launcher URL http://example.com Command" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    const url = "http://example.com";
-    const packet = MdcPacket.init(.{ .LauncherUrl = .{ .Set = url } }, 0);
-    const bytes = try packet.serialize(allocator);
-
-    try testing.expectEqual(@as(usize, 24), bytes.len);
-    try testing.expectEqual(@as(u8, 0xAA), bytes[0]); // Header
-    try testing.expectEqual(@as(u8, 0xc7), bytes[1]); // Power command
-    try testing.expectEqual(@as(u8, 0x00), bytes[2]); // Display ID
-    try testing.expectEqual(@as(u8, 0x13), bytes[3]); // Length
-    try testing.expectEqual(@as(u8, 0x82), bytes[4]); // Data
-    try testing.expectEqual(@as(u8, 0x0d), bytes[23]); // Checksum
-
-    inline for (5.., url) |i, byte| {
-        try testing.expectEqual(@as(u8, byte), bytes[i]);
     }
 }
 
@@ -429,16 +251,4 @@ test "Response - Invalid Checksum" {
 test "Response - Packet Too Short" {
     const response_bytes = [_]u8{ 0xAA, 0xFF, 0x00, 0x41, 0x11, 0x00 }; // Too short
     try testing.expectError(MdcError.PacketTooShort, Response.init(&response_bytes, testing.allocator));
-}
-
-test "MdcPacket - URL Too Long" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    var long_url: [256]u8 = undefined;
-    @memset(&long_url, 'a');
-
-    const packet = MdcPacket.init(.{ .LauncherUrl = .{ .Set = &long_url } }, 0);
-    try testing.expectError(MdcError.DataTooLong, packet.serialize(allocator));
 }

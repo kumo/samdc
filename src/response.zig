@@ -60,6 +60,36 @@ pub const MdcResponse = struct {
         self.allocator.free(self.data);
     }
 
+    // Format packet as hex string for debugging
+    pub fn format(
+        self: MdcResponse,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        try writer.print("MDC Response {{ ", .{});
+        try writer.print("type: {s}, cmd: {s}, id: {d}, len: {d}, data: ", .{
+            @tagName(self.response_type),
+            @tagName(self.command),
+            self.display_id,
+            self.data.len,
+        });
+
+        // Format data as hex
+        try writer.writeAll("[ ");
+        for (self.data) |byte| {
+            if (std.ascii.isPrint(byte)) {
+                try writer.print("{X:0>2} ({c}) ", .{ byte, byte });
+            } else {
+                try writer.print("{X:0>2} ", .{byte});
+            }
+        }
+        try writer.writeAll("] }}");
+    }
+
     fn calculateChecksum(bytes: []const u8) u8 {
         var sum: u8 = 0;
         for (bytes) |byte| {

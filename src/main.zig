@@ -45,6 +45,8 @@ pub fn main() !void {
         var response = try MdcResponse.init(buffer[0..bytes_read], allocator);
         defer response.deinit();
 
+        std.debug.print("Response: {any}\n", .{response});
+
         if (response.response_type == .Ack) {
             const is_on = try response.getPowerStatus();
             std.debug.print("Power is: {s}\n", .{if (is_on) "ON" else "OFF"});
@@ -77,6 +79,11 @@ pub fn main() !void {
             }
         }
         std.debug.print("\n", .{});
+
+        var response = try MdcResponse.init(buffer[0..bytes_read], allocator);
+        defer response.deinit();
+
+        std.debug.print("Response: {any}\n", .{response});
     }
 
     // Example 3: Launcher URL Status Query (aa:c7:00:01:82:4a)
@@ -108,6 +115,8 @@ pub fn main() !void {
 
         var response = try MdcResponse.init(buffer[0..bytes_read], allocator);
         defer response.deinit();
+
+        std.debug.print("Response: {any}\n", .{response});
 
         if (response.response_type == .Ack) {
             const url = try response.getLauncherUrl();
@@ -144,5 +153,10 @@ pub fn main() !void {
             }
         }
         std.debug.print("\n", .{});
+
+        var response = try MdcResponse.init(buffer[0..bytes_read], allocator);
+        defer response.deinit();
+
+        std.debug.print("Response: {any}\n", .{response});
     }
 }

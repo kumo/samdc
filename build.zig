@@ -67,6 +67,15 @@ pub fn build(b: *std.Build) void {
 
     const run_mdc_command_tests = b.addRunArtifact(mdc_command_tests);
 
+    // Add the mdc response tests
+    const mdc_response_tests = b.addTest(.{
+        .root_source_file = b.path("src/response.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const run_mdc_response_tests = b.addRunArtifact(mdc_response_tests);
+
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
     // running the unit tests.
@@ -74,4 +83,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_exe_unit_tests.step);
     // Add mdc command tests to the test step
     test_step.dependOn(&run_mdc_command_tests.step);
+    // Add mdc response tests to the test step
+    test_step.dependOn(&run_mdc_response_tests.step);
 }

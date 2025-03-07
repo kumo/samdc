@@ -8,6 +8,9 @@ pub const MdcError = error{
     InvalidHeader,
     DataTooLong,
     BufferTooSmall,
+    ReceiveFailed,
+    NakReceived,
+    ConnectionFailed,
 };
 
 pub const CommandType = enum(u8) {

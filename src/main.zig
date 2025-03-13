@@ -40,6 +40,11 @@ pub fn main() !void {
                 display.showError(err);
             };
         },
+        .reboot => {
+            client.reboot() catch |err| {
+                display.showError(err);
+            };
+        },
         else => {},
     }
 }

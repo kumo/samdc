@@ -4,9 +4,15 @@ const testing = std.testing;
 const CommandType = protocol.CommandType;
 const MdcError = protocol.MdcError;
 
+pub const PowerState = enum(u8) {
+    Off = 0x00,
+    On = 0x01,
+    Reboot = 0x02,
+};
+
 pub const PowerData = union(enum) {
     Status, // No data needed for status query
-    Set: bool, // true = on, false = off
+    Set: PowerState,
 };
 
 pub const LauncherData = union(enum) {
@@ -23,7 +29,7 @@ pub const Command = union(protocol.CommandType) {
         const data = switch (self) {
             .Power => |power| switch (power) {
                 .Status => &[_]u8{}, // Static empty slice
-                .Set => |on| &[_]u8{if (on) 0x01 else 0x00}, // Static slice
+                .Set => |state| &[_]u8{@intFromEnum(state)}, // Convert enum to u8 value
             },
             .LauncherUrl => |launcher| switch (launcher) {
                 .Status => &[_]u8{0x82}, // Static slice

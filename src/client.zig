@@ -1,7 +1,8 @@
 const std = @import("std");
 const net = std.net;
 
-const MdcCommand = @import("command.zig").MdcCommand;
+const command_mod = @import("command.zig");
+const MdcCommand = command_mod.MdcCommand;
 const MdcError = @import("protocol.zig").MdcError;
 const MdcResponse = @import("response.zig").MdcResponse;
 
@@ -96,7 +97,16 @@ pub const MdcClient = struct {
     }
 
     pub fn setPower(self: *MdcClient, on: bool) !void {
-        const command = MdcCommand.init(.{ .Power = .{ .Set = on } }, self.display_id);
+        const command = if (on)
+            MdcCommand.init(.{ .Power = .{ .Set = .On } }, self.display_id)
+        else
+            MdcCommand.init(.{ .Power = .{ .Set = .Off } }, self.display_id);
+        var response = try self.sendCommand(command);
+        defer response.deinit();
+    }
+
+    pub fn reboot(self: *MdcClient) !void {
+        const command = MdcCommand.init(.{ .Power = .{ .Set = .Reboot } }, self.display_id);
 
         var response = try self.sendCommand(command);
         defer response.deinit();

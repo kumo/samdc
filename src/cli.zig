@@ -11,6 +11,7 @@ const Action = enum {
     demo,
     wake,
     sleep,
+    reboot,
     unknown,
 
     pub fn fromString(s: []const u8) Action {
@@ -18,6 +19,7 @@ const Action = enum {
             .{ "demo", .demo },
             .{ "wake", .wake },
             .{ "sleep", .sleep },
+            .{ "reboot", .reboot },
         };
 
         for (lookup) |entry| {

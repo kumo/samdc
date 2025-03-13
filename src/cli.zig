@@ -4,26 +4,57 @@ const MdcClient = @import("client.zig").MdcClient;
 pub const CliError = error{
     InvalidArgCount,
     InvalidAddress,
+    InvalidAction,
+};
+
+const Action = enum {
+    demo,
+    wake,
+    sleep,
+    unknown,
+
+    pub fn fromString(s: []const u8) Action {
+        const lookup = [_]struct { []const u8, Action }{
+            .{ "demo", .demo },
+            .{ "wake", .wake },
+            .{ "sleep", .sleep },
+        };
+
+        for (lookup) |entry| {
+            if (std.mem.eql(u8, s, entry[0])) {
+                return entry[1];
+            }
+        }
+        return .unknown;
+    }
 };
 
 pub const Config = struct {
     address: std.net.Address,
+    action: Action,
 
     pub fn fromArgs(allocator: std.mem.Allocator) !Config {
         const args = try std.process.argsAlloc(allocator);
         defer std.process.argsFree(allocator, args);
 
-        if (args.len != 2) {
+        if (args.len != 3) {
             return CliError.InvalidArgCount;
         }
 
+        const action = Action.fromString(args[1]);
+
+        if (action == .unknown) {
+            return CliError.InvalidAction;
+        }
+
         // Create address with default port
-        const address = std.net.Address.parseIp4(args[1], 1515) catch {
+        const address = std.net.Address.parseIp4(args[2], 1515) catch {
             return CliError.InvalidAddress;
         };
 
         return Config{
             .address = address,
+            .action = action,
         };
     }
 };
@@ -67,8 +98,8 @@ pub const Display = struct {
     }
 
     pub fn printUsage(self: Display) void {
-        self.writer.writeAll("Usage: samdc <ip>\n") catch {};
-        self.writer.writeAll("Example: samdc 192.168.1.1\n") catch {};
+        self.writer.writeAll("Usage: samdc <action> <ip>\n") catch {};
+        self.writer.writeAll("Example: samdc reboot 192.168.1.1\n") catch {};
     }
 
     pub fn showError(self: Display, err: anyerror) void {
@@ -76,6 +107,7 @@ pub const Display = struct {
             error.InvalidArgCount => self.printUsage(),
             error.InvalidAddress => self.writer.writeAll("Invalid IP address\n") catch {},
             error.ConnectionRefused => self.writer.writeAll("Couldn't contact device: connection refused\n") catch {},
+            error.InvalidAction => self.writer.writeAll("Invalid action\n") catch {},
             else => self.writer.print("Error: {}\n", .{err}) catch {},
         }
     }

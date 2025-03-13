@@ -23,8 +23,23 @@ pub fn main() !void {
     var client = MdcClient.init(allocator, config.address, 0); // Default Display ID
     defer client.deinit();
 
-    display.showExamples(&client, allocator) catch |err| {
-        display.showError(err);
-        return;
-    };
+    switch (config.action) {
+        .demo => {
+            display.showExamples(&client, allocator) catch |err| {
+                display.showError(err);
+                return;
+            };
+        },
+        .wake => {
+            client.setPower(true) catch |err| {
+                display.showError(err);
+            };
+        },
+        .sleep => {
+            client.setPower(false) catch |err| {
+                display.showError(err);
+            };
+        },
+        else => {},
+    }
 }

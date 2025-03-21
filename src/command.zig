@@ -126,7 +126,7 @@ test "MdcCommand - Power On Command" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const packet = MdcCommand.init(.{ .Power = .{ .Set = true } }, 0);
+    const packet = MdcCommand.init(.{ .Power = .{ .Set = .On } }, 0);
     const bytes = try packet.serialize(allocator);
 
     // aa:11:00:01:01:13

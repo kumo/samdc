@@ -52,7 +52,7 @@ pub const CommandArg = union(enum) {
     pub fn asInteger(self: CommandArg) !u32 {
         return switch (self) {
             .Integer => |i| i,
-            .String => |s| std.fmt.parseInt(u32, s, 10),
+            .String => |s| std.fmt.parseInt(u32, s, 10) catch return error.InvalidInteger,
             .Boolean => |b| if (b) @as(u32, 1) else @as(u32, 0),
         };
     }
@@ -61,7 +61,9 @@ pub const CommandArg = union(enum) {
         return switch (self) {
             .String => |s| s,
             .Integer => |i| {
+                // Caller must free this buffer
                 const buf = try allocator.alloc(u8, 20);
+                errdefer allocator.free(buf);
                 return std.fmt.bufPrint(buf, "{d}", .{i});
             },
             .Boolean => |b| if (b) "true" else "false",
@@ -86,6 +88,12 @@ pub const Config = struct {
 
     pub fn deinit(self: *Config) void {
         self.addresses.deinit();
+        // Free any string arguments
+        for (self.positional_args.items) |arg| {
+            if (arg == .String) {
+                self.allocator.free(arg.String);
+            }
+        }
         self.positional_args.deinit();
     }
 
@@ -103,6 +111,8 @@ pub const Config = struct {
         }
 
         var config = Config.init(allocator);
+        errdefer config.deinit();
+
         config.action = action;
 
         // Process remaining arguments
@@ -121,7 +131,10 @@ pub const Config = struct {
             if (std.fmt.parseInt(u32, arg, 10)) |int_val| {
                 try config.positional_args.append(.{ .Integer = int_val });
             } else |_| {
-                try config.positional_args.append(.{ .String = arg });
+                // Make a copy of the string to avoid use-after-free
+                const str_copy = try allocator.dupe(u8, arg);
+                errdefer allocator.free(str_copy);
+                try config.positional_args.append(.{ .String = str_copy });
             }
         }
 
@@ -137,7 +150,10 @@ pub const Config = struct {
     pub fn getPositionalInteger(self: Config, index: usize) ?u32 {
         if (index < self.positional_args.items.len) {
             const arg = self.positional_args.items[index];
-            return arg.asInteger() catch null;
+            return arg.asInteger() catch |err| {
+                std.log.err("Integer conversion error: {}", .{err});
+                return null;
+            };
         }
         return null;
     }

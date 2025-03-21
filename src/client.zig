@@ -129,6 +129,25 @@ pub const MdcClient = struct {
         const url = try response.getLauncherUrl();
         return try self.allocator.dupe(u8, url);
     }
+
+    // Volume control
+    pub fn getVolume(self: *MdcClient) !u8 {
+        const command = MdcCommand.init(.{ .Volume = .Status }, self.display_id);
+
+        var response = try self.sendCommand(command);
+        defer response.deinit();
+
+        return response.getVolume();
+    }
+
+    pub fn setVolume(self: *MdcClient, level: u8) !void {
+        if (level > 100) return MdcError.InvalidParameter;
+
+        const command = MdcCommand.init(.{ .Volume = .{ .Set = level } }, self.display_id);
+
+        var response = try self.sendCommand(command);
+        defer response.deinit();
+    }
 };
 
 fn printBytes(bytes: []u8) void {

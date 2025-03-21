@@ -112,6 +112,13 @@ pub const MdcResponse = struct {
         // TODO: Handle the subcommand explicitly
         return self.data[1..self.data.len];
     }
+
+    // Helper to parse volume response
+    pub fn getVolume(self: MdcResponse) !u8 {
+        if (self.command != .Volume) return error.WrongCommandType;
+        if (self.data.len < 1) return error.InvalidDataLength;
+        return self.data[0];
+    }
 };
 
 test "MdcResponse - Parse Power Status" {

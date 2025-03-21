@@ -20,9 +20,15 @@ pub const LauncherData = union(enum) {
     Set: []const u8,
 };
 
+pub const VolumeData = union(enum) {
+    Status,
+    Set: u8,
+};
+
 pub const Command = union(protocol.CommandType) {
     Power: PowerData,
     LauncherUrl: LauncherData,
+    Volume: VolumeData,
 
     pub fn getCommandData(self: Command, allocator: std.mem.Allocator) ![]const u8 {
         // Determine the data to return
@@ -41,6 +47,10 @@ pub const Command = union(protocol.CommandType) {
                     @memcpy(result[1 .. url.len + 1], url);
                     break :blk result;
                 },
+            },
+            .Volume => |volume| switch (volume) {
+                .Status => &[_]u8{}, // Static empty slice
+                .Set => |level| &[_]u8{level}, // Use the volume level
             },
         };
 

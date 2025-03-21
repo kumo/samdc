@@ -15,36 +15,44 @@ pub fn main() !void {
     var display = cli.Display.init();
 
     // Parse command line arguments
-    const config = cli.Config.fromArgs(allocator) catch |err| {
+    var config = cli.Config.fromArgs(allocator) catch |err| {
         display.showError(err);
         return;
     };
+    defer config.deinit();
 
-    var client = MdcClient.init(allocator, config.address, 0); // Default Display ID
-    defer client.deinit();
+    // Execute command for each address
+    for (config.addresses.items) |address| {
+        var client = MdcClient.init(allocator, address, 0); // Default Display ID
+        defer client.deinit();
 
-    switch (config.action) {
-        .demo => {
-            display.showExamples(&client, allocator) catch |err| {
-                display.showError(err);
-                return;
-            };
-        },
-        .wake => {
-            client.setPower(true) catch |err| {
-                display.showError(err);
-            };
-        },
-        .sleep => {
-            client.setPower(false) catch |err| {
-                display.showError(err);
-            };
-        },
-        .reboot => {
-            client.reboot() catch |err| {
-                display.showError(err);
-            };
-        },
-        else => {},
+        // Show address if multiple targets
+        if (config.addresses.items.len > 1) {
+            display.writer.print("Executing on {}\n", .{address}) catch {};
+        }
+
+        switch (config.action) {
+            .demo => {
+                display.showExamples(&client, allocator) catch |err| {
+                    display.showError(err);
+                };
+            },
+            .wake => {
+                client.setPower(true) catch |err| {
+                    display.showError(err);
+                };
+            },
+            .sleep => {
+                client.setPower(false) catch |err| {
+                    display.showError(err);
+                };
+            },
+            .reboot => {
+                client.reboot() catch |err| {
+                    display.showError(err);
+                };
+            },
+            else => {},
+        }
     }
 }

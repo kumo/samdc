@@ -32,14 +32,27 @@ const Action = enum {
 };
 
 pub const Config = struct {
-    address: std.net.Address,
+    allocator: std.mem.Allocator,
     action: Action,
+    addresses: std.ArrayList(std.net.Address),
+
+    pub fn init(allocator: std.mem.Allocator) Config {
+        return .{
+            .allocator = allocator,
+            .action = .unknown,
+            .addresses = std.ArrayList(std.net.Address).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *Config) void {
+        self.addresses.deinit();
+    }
 
     pub fn fromArgs(allocator: std.mem.Allocator) !Config {
         const args = try std.process.argsAlloc(allocator);
         defer std.process.argsFree(allocator, args);
 
-        if (args.len != 3) {
+        if (args.len < 2) {
             return CliError.InvalidArgCount;
         }
 
@@ -49,15 +62,27 @@ pub const Config = struct {
             return CliError.InvalidAction;
         }
 
-        // Create address with default port
-        const address = std.net.Address.parseIp4(args[2], 1515) catch {
-            return CliError.InvalidAddress;
-        };
+        var config = Config.init(allocator);
+        config.action = action;
 
-        return Config{
-            .address = address,
-            .action = action,
-        };
+        // Process remaining arguments
+        var i: usize = 2;
+        while (i < args.len) : (i += 1) {
+            const arg = args[i];
+
+            // Try to parse as IP address
+            if (std.net.Address.parseIp4(arg, 1515)) |address| {
+                try config.addresses.append(address);
+                continue;
+            } else |_| {}
+        }
+
+        // Ensure we have at least one address
+        if (config.addresses.items.len == 0) {
+            return CliError.InvalidAddress;
+        }
+
+        return config;
     }
 };
 
@@ -100,7 +125,7 @@ pub const Display = struct {
     }
 
     pub fn printUsage(self: Display) void {
-        self.writer.writeAll("Usage: samdc <action> <ip>\n") catch {};
+        self.writer.writeAll("Usage: samdc <action> [ip_addresses...]\n") catch {};
         self.writer.writeAll("Example: samdc reboot 192.168.1.1\n") catch {};
     }
 

@@ -125,8 +125,15 @@ pub const Display = struct {
     }
 
     pub fn printUsage(self: Display) void {
-        self.writer.writeAll("Usage: samdc <action> [ip_addresses...]\n") catch {};
-        self.writer.writeAll("Example: samdc reboot 192.168.1.1\n") catch {};
+        self.writer.writeAll("Usage: samdc <command> [ip_addresses...]\n\n") catch {};
+        self.writer.writeAll("Commands:\n") catch {};
+        self.writer.writeAll("  demo            Run a demo sequence\n") catch {};
+        self.writer.writeAll("  wake            Turn on the display\n") catch {};
+        self.writer.writeAll("  sleep           Turn off the display\n") catch {};
+        self.writer.writeAll("  reboot          Reboot the display\n") catch {};
+        self.writer.writeAll("\nExamples:\n") catch {};
+        self.writer.writeAll("  samdc reboot 192.168.1.1                  # Reboot single display\n") catch {};
+        self.writer.writeAll("  samdc wake 192.168.1.1 192.168.1.2        # Wake multiple displays\n") catch {};
     }
 
     pub fn showError(self: Display, err: anyerror) void {

@@ -1,10 +1,10 @@
-# SamDC
+# SaMDC
 
 A lightweight CLI tool for interacting with Samsung displays using the MDC (Multiple Display Control) protocol.
 
 ## Overview
 
-SamDC is designed as a more user-friendly alternative to existing Samsung MDC tools, focusing on simplicity and common use cases like rebooting, replacing the app, and auditing one or more displays.
+SaMDC is designed as a more user-friendly alternative to existing Samsung MDC tools, focusing on simplicity and common use cases like rebooting, replacing the app, and auditing one or more displays.
 
 ## Features
 
@@ -12,6 +12,8 @@ SamDC is designed as a more user-friendly alternative to existing Samsung MDC to
   - `reboot`: Restart the display
   - `wake`: Power on the display
   - `sleep`: Put the display to sleep
+  - `volume`: Get or set the volume
+  - `url`: Get or set the launcher url
 
 ## Installation
 
@@ -27,11 +29,11 @@ SamDC is designed as a more user-friendly alternative to existing Samsung MDC to
 # Reboot a display
 samdc reboot 10.10.10.10
 
-# Wake up a display
-samdc wake 10.10.10.10
+# Wake up multiple displays
+samdc wake 10.10.10.10 11.11.11.11
 
-# Put a display to sleep
-samdc sleep 10.10.10.10
+# Change the volume of a display
+samdc volume 50 10.10.10.10
 ```
 
 ## Development
@@ -41,8 +43,8 @@ This project is in very early development. Currently implementing core commands 
 ## Roadmap
 
 - [x] Basic device control (reboot, wake, sleep)
+- [x] Multi-device management
 - [ ] Advanced display settings
-- [ ] Multi-device management
 - [ ] Export data in JSON
 - [ ] Configuration profiles
 - [ ] Audit capabilities

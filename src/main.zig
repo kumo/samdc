@@ -40,18 +40,21 @@ pub fn main() !void {
             .wake => {
                 client.setPower(true) catch |err| {
                     display.showError(err);
+                    continue;
                 };
                 display.writer.writeAll("Wake command sent\n") catch {};
             },
             .sleep => {
                 client.setPower(false) catch |err| {
                     display.showError(err);
+                    continue;
                 };
                 display.writer.writeAll("Sleep command sent\n") catch {};
             },
             .reboot => {
                 client.reboot() catch |err| {
                     display.showError(err);
+                    continue;
                 };
                 display.writer.writeAll("Reboot command sent\n") catch {};
             },
@@ -71,6 +74,7 @@ pub fn main() !void {
 
                     client.setVolume(@intCast(volume_value)) catch |err| {
                         display.showError(err);
+                        continue;
                     };
                     display.writer.print("Volume set to {d}\n", .{volume_value}) catch {};
                 } else {
@@ -93,6 +97,7 @@ pub fn main() !void {
 
                     client.setLauncherUrl(url) catch |err| {
                         display.showError(err);
+                        continue;
                     };
                     display.writer.print("URL set to {s}\n", .{url}) catch {};
                 } else {

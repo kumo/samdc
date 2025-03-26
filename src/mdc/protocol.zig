@@ -1,4 +1,4 @@
-pub const MdcError = error{
+pub const Error = error{
     PacketTooShort,
     InvalidResponseType,
     InvalidCommand,

@@ -1,5 +1,6 @@
 const std = @import("std");
-const MdcClient = @import("client.zig").MdcClient;
+
+const mdc = @import("mdc/mod.zig");
 
 pub const CliError = error{
     InvalidArgCount,
@@ -178,7 +179,7 @@ pub const Display = struct {
         };
     }
 
-    pub fn showExamples(self: Display, client: *MdcClient, allocator: std.mem.Allocator) !void {
+    pub fn showExamples(self: Display, client: *mdc.Client, allocator: std.mem.Allocator) !void {
         // Example 1: Power Status Query (aa:11:00:00:11)
         {
             const is_on = try client.getPowerStatus();

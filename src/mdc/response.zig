@@ -1,25 +1,22 @@
 const std = @import("std");
 const net = std.net;
 const testing = std.testing;
-const protocol = @import("protocol.zig");
-const CommandType = protocol.CommandType;
-const MdcError = protocol.MdcError;
-const command = @import("command.zig");
-const MdcCommand = command.MdcCommand;
+
+const mdc = @import("mod.zig");
 
 pub const ResponseType = enum(u8) {
     Ack = 0x41, // 'A'
     Nak = 0x4E, // 'N'
 };
 
-pub const MdcResponse = struct {
+pub const Response = struct {
     response_type: ResponseType,
-    command: CommandType,
+    command: mdc.CommandType,
     display_id: u8,
     data: []u8,
     allocator: std.mem.Allocator,
 
-    pub fn init(bytes: []const u8, allocator: std.mem.Allocator) !MdcResponse {
+    pub fn init(bytes: []const u8, allocator: std.mem.Allocator) !Response {
         // Header(1) + CommandType(1) + ResponseType(1) + Command(1) + DisplayID(1) + Length(1) + Checksum(1)
         const min_packet_size = 7;
         if (bytes.len < min_packet_size) return error.PacketTooShort;
@@ -47,22 +44,22 @@ pub const MdcResponse = struct {
             owned_data = try allocator.alloc(u8, 0);
         }
 
-        return MdcResponse{
+        return Response{
             .response_type = std.meta.intToEnum(ResponseType, bytes[4]) catch return error.InvalidResponseType,
-            .command = std.meta.intToEnum(CommandType, bytes[5]) catch return error.InvalidCommand,
+            .command = std.meta.intToEnum(mdc.CommandType, bytes[5]) catch return error.InvalidCommand,
             .display_id = bytes[2],
             .data = owned_data,
             .allocator = allocator,
         };
     }
 
-    pub fn deinit(self: *MdcResponse) void {
+    pub fn deinit(self: *Response) void {
         self.allocator.free(self.data);
     }
 
     // Format packet as hex string for debugging
     pub fn format(
-        self: MdcResponse,
+        self: Response,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
         writer: anytype,
@@ -99,14 +96,14 @@ pub const MdcResponse = struct {
     }
 
     // Helper to parse power status response
-    pub fn getPowerStatus(self: MdcResponse) !bool {
+    pub fn getPowerStatus(self: Response) !bool {
         if (self.command != .Power) return error.WrongCommandType;
         if (self.data.len < 1) return error.InvalidDataLength;
         return self.data[0] == 0x01;
     }
 
     // Helper to parse launcher URL response
-    pub fn getLauncherUrl(self: MdcResponse) ![]const u8 {
+    pub fn getLauncherUrl(self: Response) ![]const u8 {
         if (self.command != .LauncherUrl) return error.WrongCommandType;
         if (self.data.len < 1) return error.InvalidDataLength;
         // TODO: Handle the subcommand explicitly
@@ -114,36 +111,36 @@ pub const MdcResponse = struct {
     }
 
     // Helper to parse volume response
-    pub fn getVolume(self: MdcResponse) !u8 {
+    pub fn getVolume(self: Response) !u8 {
         if (self.command != .Volume) return error.WrongCommandType;
         if (self.data.len < 1) return error.InvalidDataLength;
         return self.data[0];
     }
 };
 
-test "MdcResponse - Parse Power Status" {
+test "Response - Parse Power Status" {
     const response_bytes = [_]u8{ 0xAA, 0xFF, 0x00, 0x03, 0x41, 0x11, 0x01, 0x55 };
-    var response = try MdcResponse.init(&response_bytes, testing.allocator);
+    var response = try Response.init(&response_bytes, testing.allocator);
     defer response.deinit();
 
     try testing.expectEqual(ResponseType.Ack, response.response_type);
-    try testing.expectEqual(CommandType.Power, response.command);
+    try testing.expectEqual(mdc.CommandType.Power, response.command);
     try testing.expectEqual(@as(u8, 0x00), response.display_id);
     const is_on = try response.getPowerStatus();
     try testing.expect(is_on);
 }
 
-test "MdcResponse - Missing Headers" {
+test "Response - Missing Headers" {
     const response_bytes = [_]u8{ 0x00, 0x00, 0x00, 0x03, 0x41, 0x11, 0x01, 0x00 }; // Wrong checksum
-    try testing.expectError(MdcError.InvalidHeader, MdcResponse.init(&response_bytes, testing.allocator));
+    try testing.expectError(mdc.Error.InvalidHeader, Response.init(&response_bytes, testing.allocator));
 }
 
-test "MdcResponse - Invalid Checksum" {
+test "Response - Invalid Checksum" {
     const response_bytes = [_]u8{ 0xAA, 0xFF, 0x00, 0x03, 0x41, 0x11, 0x01, 0x00 }; // Wrong checksum
-    try testing.expectError(MdcError.InvalidChecksum, MdcResponse.init(&response_bytes, testing.allocator));
+    try testing.expectError(mdc.Error.InvalidChecksum, Response.init(&response_bytes, testing.allocator));
 }
 
-test "MdcResponse - Packet Too Short" {
+test "Response - Packet Too Short" {
     const response_bytes = [_]u8{ 0xAA, 0xFF, 0x00, 0x41, 0x11, 0x00 }; // Too short
-    try testing.expectError(MdcError.PacketTooShort, MdcResponse.init(&response_bytes, testing.allocator));
+    try testing.expectError(mdc.Error.PacketTooShort, Response.init(&response_bytes, testing.allocator));
 }

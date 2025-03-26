@@ -1,8 +1,7 @@
 const std = @import("std");
-const protocol = @import("protocol.zig");
 const testing = std.testing;
-const CommandType = protocol.CommandType;
-const MdcError = protocol.MdcError;
+
+const mdc = @import("mod.zig");
 
 pub const PowerState = enum(u8) {
     Off = 0x00,
@@ -25,12 +24,12 @@ pub const VolumeData = union(enum) {
     Set: u8,
 };
 
-pub const Command = union(protocol.CommandType) {
+pub const CommandData = union(mdc.Protocol.CommandType) {
     Power: PowerData,
     LauncherUrl: LauncherData,
     Volume: VolumeData,
 
-    pub fn getCommandData(self: Command, allocator: std.mem.Allocator) ![]const u8 {
+    pub fn getCommandData(self: CommandData, allocator: std.mem.Allocator) ![]const u8 {
         // Determine the data to return
         const data = switch (self) {
             .Power => |power| switch (power) {
@@ -40,7 +39,7 @@ pub const Command = union(protocol.CommandType) {
             .LauncherUrl => |launcher| switch (launcher) {
                 .Status => &[_]u8{0x82}, // Static slice
                 .Set => |url| return blk: {
-                    if (url.len > 200) return MdcError.DataTooLong;
+                    if (url.len > 200) return mdc.Error.DataTooLong;
 
                     var result = try allocator.alloc(u8, url.len + 1);
                     result[0] = 0x82;
@@ -59,23 +58,23 @@ pub const Command = union(protocol.CommandType) {
 };
 
 // MDC command structure
-pub const MdcCommand = struct {
+pub const Command = struct {
     header: u8 = 0xAA, // Fixed header for MDC
-    command: Command,
+    command: CommandData,
     display_id: u8 = 0,
 
-    pub fn init(command: Command, display_id: u8) MdcCommand {
+    pub fn init(command: CommandData, display_id: u8) Command {
         return .{
             .command = command,
             .display_id = display_id,
         };
     }
 
-    pub fn calculateChecksum(self: MdcCommand, data: []const u8) u8 {
+    pub fn calculateChecksum(self: Command, data: []const u8) u8 {
         var sum: u32 = 0;
 
         // Sum all bytes except header and checksum
-        sum += @intFromEnum(@as(CommandType, self.command));
+        sum += @intFromEnum(@as(mdc.CommandType, self.command));
         sum += self.display_id;
         sum += @as(u8, @intCast(data.len)); // Length byte
 
@@ -88,7 +87,7 @@ pub const MdcCommand = struct {
         return @truncate(sum);
     }
 
-    pub fn serialize(self: MdcCommand, allocator: std.mem.Allocator) ![]u8 {
+    pub fn serialize(self: Command, allocator: std.mem.Allocator) ![]u8 {
         // Get the command data (may allocate memory)
         const data = try self.command.getCommandData(allocator);
         defer allocator.free(data);
@@ -98,7 +97,7 @@ pub const MdcCommand = struct {
         var buffer = try allocator.alloc(u8, total_length);
 
         buffer[0] = self.header;
-        buffer[1] = @intFromEnum(@as(CommandType, self.command));
+        buffer[1] = @intFromEnum(@as(mdc.CommandType, self.command));
         buffer[2] = self.display_id;
         buffer[3] = @intCast(data.len);
 
@@ -119,7 +118,7 @@ test "MdcCommand - Power Status Query" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const packet = MdcCommand.init(.{ .Power = .Status }, 0);
+    const packet = Command.init(.{ .Power = .Status }, 0);
     const bytes = try packet.serialize(allocator);
 
     // aa:11:00:00:11
@@ -136,7 +135,7 @@ test "MdcCommand - Power On Command" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const packet = MdcCommand.init(.{ .Power = .{ .Set = .On } }, 0);
+    const packet = Command.init(.{ .Power = .{ .Set = .On } }, 0);
     const bytes = try packet.serialize(allocator);
 
     // aa:11:00:01:01:13
@@ -154,7 +153,7 @@ test "MdcCommand - Launcher URL Status Query" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const packet = MdcCommand.init(.{ .LauncherUrl = .Status }, 0);
+    const packet = Command.init(.{ .LauncherUrl = .Status }, 0);
     const bytes = try packet.serialize(allocator);
 
     // aa:c7:00:01:82:4a
@@ -173,7 +172,7 @@ test "MdcCommand - Launcher URL http://example.com Command" {
     const allocator = arena.allocator();
 
     const url = "http://example.com";
-    const packet = MdcCommand.init(.{ .LauncherUrl = .{ .Set = url } }, 0);
+    const packet = Command.init(.{ .LauncherUrl = .{ .Set = url } }, 0);
     const bytes = try packet.serialize(allocator);
 
     // aa:c7:00:13:82 + "http://example.com" + 0d
@@ -198,6 +197,6 @@ test "MdcCommand - URL Too Long" {
     var long_url: [256]u8 = undefined;
     @memset(&long_url, 'a');
 
-    const packet = MdcCommand.init(.{ .LauncherUrl = .{ .Set = &long_url } }, 0);
-    try testing.expectError(MdcError.DataTooLong, packet.serialize(allocator));
+    const packet = Command.init(.{ .LauncherUrl = .{ .Set = &long_url } }, 0);
+    try testing.expectError(mdc.Error.DataTooLong, packet.serialize(allocator));
 }

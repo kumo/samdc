@@ -3,9 +3,7 @@ const net = std.net;
 const testing = std.testing;
 
 const cli = @import("cli.zig");
-const MdcClient = @import("client.zig").MdcClient;
-const MdcCommand = @import("command.zig").MdcCommand;
-const MdcResponse = @import("response.zig").MdcResponse;
+const mdc = @import("mdc/mod.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -23,7 +21,7 @@ pub fn main() !void {
 
     // Execute command for each address
     for (config.addresses.items) |address| {
-        var client = MdcClient.init(allocator, address, 0); // Default Display ID
+        var client = mdc.Client.init(allocator, address, 0); // Default Display ID
         defer client.deinit();
 
         // Show address if multiple targets

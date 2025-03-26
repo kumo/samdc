@@ -1,19 +1,16 @@
 const std = @import("std");
 const net = std.net;
 
-const command_mod = @import("command.zig");
-const MdcCommand = command_mod.MdcCommand;
-const MdcError = @import("protocol.zig").MdcError;
-const MdcResponse = @import("response.zig").MdcResponse;
+const mdc = @import("mod.zig");
 
-pub const MdcClient = struct {
+pub const Client = struct {
     allocator: std.mem.Allocator,
     address: net.Address,
     display_id: u8,
     socket: ?net.Stream,
 
-    pub fn init(allocator: std.mem.Allocator, address: net.Address, display_id: u8) MdcClient {
-        return MdcClient{
+    pub fn init(allocator: std.mem.Allocator, address: net.Address, display_id: u8) Client {
+        return Client{
             .allocator = allocator,
             .address = address,
             .display_id = display_id,
@@ -21,13 +18,13 @@ pub const MdcClient = struct {
         };
     }
 
-    pub fn deinit(self: *MdcClient) void {
+    pub fn deinit(self: *Client) void {
         if (self.socket) |*s| {
             s.close();
         }
     }
 
-    fn connect(self: *MdcClient) !void {
+    fn connect(self: *Client) !void {
         if (self.socket != null) {
             // Already connected
             return;
@@ -38,7 +35,7 @@ pub const MdcClient = struct {
         self.socket = socket;
     }
 
-    fn disconnect(self: *MdcClient) void {
+    fn disconnect(self: *Client) void {
         if (self.socket) |*s| {
             s.close();
             self.socket = null;
@@ -46,9 +43,9 @@ pub const MdcClient = struct {
     }
 
     fn sendCommand(
-        self: *MdcClient,
-        command: MdcCommand,
-    ) !MdcResponse {
+        self: *Client,
+        command: mdc.Command,
+    ) !mdc.Response {
         try self.connect();
 
         // Create command packet
@@ -67,28 +64,28 @@ pub const MdcClient = struct {
             const bytes_read = try s.read(&buffer);
 
             if (bytes_read == 0) {
-                return MdcError.ReceiveFailed;
+                return mdc.Error.ReceiveFailed;
             }
 
             // Parse the response, let caller deinit
-            const response = try MdcResponse.init(buffer[0..bytes_read], self.allocator);
+            const response = try mdc.Response.init(buffer[0..bytes_read], self.allocator);
             std.debug.print("Response: {any}\n", .{response});
             printBytes(buffer[0..bytes_read]);
 
             // Check if response is NAK
             if (response.response_type == .Nak) {
-                return MdcError.NakReceived;
+                return mdc.Error.NakReceived;
             }
 
             return response;
         } else {
-            return MdcError.ConnectionFailed;
+            return mdc.Error.ConnectionFailed;
         }
     }
 
     // Power control
-    pub fn getPowerStatus(self: *MdcClient) !bool {
-        const command = MdcCommand.init(.{ .Power = .Status }, self.display_id);
+    pub fn getPowerStatus(self: *Client) !bool {
+        const command = mdc.Command.init(.{ .Power = .Status }, self.display_id);
 
         var response = try self.sendCommand(command);
         defer response.deinit();
@@ -96,32 +93,32 @@ pub const MdcClient = struct {
         return response.getPowerStatus();
     }
 
-    pub fn setPower(self: *MdcClient, on: bool) !void {
+    pub fn setPower(self: *Client, on: bool) !void {
         const command = if (on)
-            MdcCommand.init(.{ .Power = .{ .Set = .On } }, self.display_id)
+            mdc.Command.init(.{ .Power = .{ .Set = .On } }, self.display_id)
         else
-            MdcCommand.init(.{ .Power = .{ .Set = .Off } }, self.display_id);
+            mdc.Command.init(.{ .Power = .{ .Set = .Off } }, self.display_id);
         var response = try self.sendCommand(command);
         defer response.deinit();
     }
 
-    pub fn reboot(self: *MdcClient) !void {
-        const command = MdcCommand.init(.{ .Power = .{ .Set = .Reboot } }, self.display_id);
+    pub fn reboot(self: *Client) !void {
+        const command = mdc.Command.init(.{ .Power = .{ .Set = .Reboot } }, self.display_id);
 
         var response = try self.sendCommand(command);
         defer response.deinit();
     }
 
     // Launcher URL
-    pub fn setLauncherUrl(self: *MdcClient, url: []const u8) !void {
-        const command = MdcCommand.init(.{ .LauncherUrl = .{ .Set = url } }, self.display_id);
+    pub fn setLauncherUrl(self: *Client, url: []const u8) !void {
+        const command = mdc.Command.init(.{ .LauncherUrl = .{ .Set = url } }, self.display_id);
 
         var response = try self.sendCommand(command);
         defer response.deinit();
     }
 
-    pub fn getLauncherUrl(self: *MdcClient) ![]const u8 {
-        const command = MdcCommand.init(.{ .LauncherUrl = .Status }, self.display_id);
+    pub fn getLauncherUrl(self: *Client) ![]const u8 {
+        const command = mdc.Command.init(.{ .LauncherUrl = .Status }, self.display_id);
 
         var response = try self.sendCommand(command);
         defer response.deinit();
@@ -131,8 +128,8 @@ pub const MdcClient = struct {
     }
 
     // Volume control
-    pub fn getVolume(self: *MdcClient) !u8 {
-        const command = MdcCommand.init(.{ .Volume = .Status }, self.display_id);
+    pub fn getVolume(self: *Client) !u8 {
+        const command = mdc.Command.init(.{ .Volume = .Status }, self.display_id);
 
         var response = try self.sendCommand(command);
         defer response.deinit();
@@ -140,10 +137,10 @@ pub const MdcClient = struct {
         return response.getVolume();
     }
 
-    pub fn setVolume(self: *MdcClient, level: u8) !void {
-        if (level > 100) return MdcError.InvalidParameter;
+    pub fn setVolume(self: *Client, level: u8) !void {
+        if (level > 100) return mdc.Error.InvalidParameter;
 
-        const command = MdcCommand.init(.{ .Volume = .{ .Set = level } }, self.display_id);
+        const command = mdc.Command.init(.{ .Volume = .{ .Set = level } }, self.display_id);
 
         var response = try self.sendCommand(command);
         defer response.deinit();

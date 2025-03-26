@@ -60,7 +60,7 @@ pub fn build(b: *std.Build) void {
 
     // Add the mdc command tests
     const mdc_command_tests = b.addTest(.{
-        .root_source_file = b.path("src/command.zig"),
+        .root_source_file = b.path("src/mdc/command.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -69,7 +69,7 @@ pub fn build(b: *std.Build) void {
 
     // Add the mdc response tests
     const mdc_response_tests = b.addTest(.{
-        .root_source_file = b.path("src/response.zig"),
+        .root_source_file = b.path("src/mdc/response.zig"),
         .target = target,
         .optimize = optimize,
     });

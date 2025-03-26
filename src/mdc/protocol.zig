@@ -7,10 +7,7 @@ pub const Error = error{
     WrongCommandType,
     InvalidHeader,
     DataTooLong,
-    BufferTooSmall,
-    ReceiveFailed,
     NakReceived,
-    ConnectionFailed,
     InvalidParameter,
 };
 

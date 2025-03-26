@@ -2,51 +2,30 @@ const std = @import("std");
 const net = std.net;
 
 const mdc = @import("mod.zig");
+const Connection = @import("../net/connection.zig").Connection;
 
 pub const Client = struct {
     allocator: std.mem.Allocator,
-    address: net.Address,
+    conn: Connection,
     display_id: u8,
-    socket: ?net.Stream,
 
     pub fn init(allocator: std.mem.Allocator, address: net.Address, display_id: u8) Client {
         return Client{
             .allocator = allocator,
-            .address = address,
+            .conn = Connection.init(address),
             .display_id = display_id,
-            .socket = null,
         };
     }
 
     pub fn deinit(self: *Client) void {
-        if (self.socket) |*s| {
-            s.close();
-        }
-    }
-
-    fn connect(self: *Client) !void {
-        if (self.socket != null) {
-            // Already connected
-            return;
-        }
-
-        const socket = try net.tcpConnectToAddress(self.address);
-
-        self.socket = socket;
-    }
-
-    fn disconnect(self: *Client) void {
-        if (self.socket) |*s| {
-            s.close();
-            self.socket = null;
-        }
+        self.conn.deinit();
     }
 
     fn sendCommand(
         self: *Client,
         command: mdc.Command,
     ) !mdc.Response {
-        try self.connect();
+        try self.conn.connect();
 
         // Create command packet
         const cmd_packet = try command.serialize(self.allocator);
@@ -56,31 +35,23 @@ pub const Client = struct {
         printBytes(cmd_packet);
 
         // Send the command
-        if (self.socket) |s| {
-            _ = try s.write(cmd_packet);
+        _ = try self.conn.send(cmd_packet);
 
-            // Read response
-            var buffer: [1024]u8 = undefined;
-            const bytes_read = try s.read(&buffer);
+        // Read response
+        var buffer: [1024]u8 = undefined;
+        const bytes_read = try self.conn.receive(&buffer);
 
-            if (bytes_read == 0) {
-                return mdc.Error.ReceiveFailed;
-            }
+        // Parse the response, let caller deinit
+        const response = try mdc.Response.init(buffer[0..bytes_read], self.allocator);
+        std.debug.print("Response: {any}\n", .{response});
+        printBytes(buffer[0..bytes_read]);
 
-            // Parse the response, let caller deinit
-            const response = try mdc.Response.init(buffer[0..bytes_read], self.allocator);
-            std.debug.print("Response: {any}\n", .{response});
-            printBytes(buffer[0..bytes_read]);
-
-            // Check if response is NAK
-            if (response.response_type == .Nak) {
-                return mdc.Error.NakReceived;
-            }
-
-            return response;
-        } else {
-            return mdc.Error.ConnectionFailed;
+        // Check if response is NAK
+        if (response.response_type == .Nak) {
+            return mdc.Error.NakReceived;
         }
+
+        return response;
     }
 
     // Power control

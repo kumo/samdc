@@ -16,6 +16,7 @@ const Action = enum {
     volume,
     url,
     help,
+    version,
     unknown,
 
     pub fn fromString(s: []const u8) Action {
@@ -124,6 +125,9 @@ pub const Config = struct {
                     return config;
                 } else if (std.mem.eql(u8, arg, "--verbose")) {
                     config.verbose = true;
+                } else if (std.mem.eql(u8, arg, "--version")) {
+                    config.action = .version;
+                    return config;
                 } else {
                     return CliError.InvalidFlag;
                 }
@@ -174,6 +178,11 @@ pub const Config = struct {
             return CliError.InvalidAction;
         }
 
+        // Ensure we have at least one address for non-special actions
+        if (config.action != .help and config.action != .version and config.addresses.items.len == 0) {
+            return CliError.InvalidAddress;
+        }
+
         return config;
     }
 
@@ -202,6 +211,7 @@ pub const Config = struct {
 
 pub const Display = struct {
     writer: std.fs.File.Writer,
+    const VERSION = "0.1.0";
 
     pub fn init() Display {
         return .{
@@ -209,10 +219,15 @@ pub const Display = struct {
         };
     }
 
+    pub fn showVersion(self: Display) void {
+        self.writer.print("samdc version {s}\n", .{VERSION}) catch {};
+    }
+
     pub fn printUsage(self: Display) void {
         self.writer.writeAll("Usage: samdc [options] <command> [args] [ip_addresses...]\n\n") catch {};
         self.writer.writeAll("Options:\n") catch {};
         self.writer.writeAll("  -h, --help     Show this help message\n") catch {};
+        self.writer.writeAll("  -v, --version  Show version information\n") catch {};
         self.writer.writeAll("  --verbose      Enable verbose output\n\n") catch {};
         self.writer.writeAll("Commands:\n") catch {};
         self.writer.writeAll("  wake            Turn on the display\n") catch {};

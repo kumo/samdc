@@ -25,8 +25,13 @@ pub fn main() !void {
             display.printUsage();
             return;
         },
+        .version => {
+            display.showVersion();
+            return;
+        },
         else => {},
     }
+
     // Execute command for each address
     for (config.addresses.items) |address| {
         var client = mdc.Client.init(allocator, address, 0, config.verbose); // Default Display ID

@@ -78,6 +78,7 @@ pub const Config = struct {
     action: Action,
     addresses: std.ArrayList(std.net.Address),
     positional_args: std.ArrayList(CommandArg),
+    verbose: bool = false,
 
     pub fn init(allocator: std.mem.Allocator) Config {
         return .{
@@ -85,6 +86,7 @@ pub const Config = struct {
             .action = .unknown,
             .addresses = std.ArrayList(std.net.Address).init(allocator),
             .positional_args = std.ArrayList(CommandArg).init(allocator),
+            .verbose = false,
         };
     }
 
@@ -120,6 +122,8 @@ pub const Config = struct {
                 if (std.mem.eql(u8, arg, "--help")) {
                     config.action = .help;
                     return config;
+                } else if (std.mem.eql(u8, arg, "--verbose")) {
+                    config.verbose = true;
                 } else {
                     return CliError.InvalidFlag;
                 }
@@ -131,6 +135,8 @@ pub const Config = struct {
                 if (std.mem.eql(u8, arg, "-h")) {
                     config.action = .help;
                     return config;
+                } else if (std.mem.eql(u8, arg, "-v")) {
+                    config.verbose = true;
                 } else {
                     return CliError.InvalidFlag;
                 }
@@ -207,6 +213,7 @@ pub const Display = struct {
         self.writer.writeAll("Usage: samdc [options] <command> [args] [ip_addresses...]\n\n") catch {};
         self.writer.writeAll("Options:\n") catch {};
         self.writer.writeAll("  -h, --help     Show this help message\n") catch {};
+        self.writer.writeAll("  --verbose      Enable verbose output\n\n") catch {};
         self.writer.writeAll("Commands:\n") catch {};
         self.writer.writeAll("  wake            Turn on the display\n") catch {};
         self.writer.writeAll("  sleep           Turn off the display\n") catch {};
@@ -223,11 +230,11 @@ pub const Display = struct {
     pub fn showError(self: Display, err: anyerror) void {
         switch (err) {
             error.InvalidArgCount => self.printUsage(),
-            error.InvalidAddress => self.writer.writeAll("Invalid IP address\n") catch {},
-            error.ConnectionRefused => self.writer.writeAll("Couldn't contact device: connection refused\n") catch {},
-            error.InvalidAction => self.writer.writeAll("Invalid action\n") catch {},
-            error.InvalidFlag => self.writer.writeAll("Invalid flag\n") catch {},
-            else => self.writer.print("Error: {}\n", .{err}) catch {},
+            error.InvalidAddress => std.log.err("Invalid IP address", .{}),
+            error.ConnectionRefused => std.log.err("Couldn't contact device: connection refused", .{}),
+            error.InvalidAction => std.log.err("Invalid action", .{}),
+            error.InvalidFlag => std.log.err("Invalid flag", .{}),
+            else => std.log.err("Operation failed: {}", .{err}),
         }
     }
 };

@@ -29,12 +29,12 @@ pub fn main() !void {
     }
     // Execute command for each address
     for (config.addresses.items) |address| {
-        var client = mdc.Client.init(allocator, address, 0); // Default Display ID
+        var client = mdc.Client.init(allocator, address, 0, config.verbose); // Default Display ID
         defer client.deinit();
 
-        // Show address if multiple targets
-        if (config.addresses.items.len > 1) {
-            display.writer.print("Executing on {}\n", .{address}) catch {};
+        // Show address if multiple targets or verbose mode
+        if (config.addresses.items.len > 1 or config.verbose) {
+            std.log.debug("Executing command on {}", .{address});
         }
 
         switch (config.action) {
@@ -64,12 +64,12 @@ pub fn main() !void {
                 if (config.positional_args.items.len > 0) {
                     // Set volume
                     const volume_value = config.getPositionalInteger(0) orelse {
-                        display.writer.writeAll("Invalid volume level\n") catch {};
+                        std.log.err("Invalid volume level", .{});
                         continue;
                     };
 
                     if (volume_value > 100) {
-                        display.writer.writeAll("Volume must be between 0-100\n") catch {};
+                        std.log.err("Volume must be between 0-100", .{});
                         continue;
                     }
 
@@ -92,7 +92,7 @@ pub fn main() !void {
                 if (config.positional_args.items.len > 0) {
                     // Set URL
                     const url = config.getPositionalString(0) orelse {
-                        display.writer.writeAll("Invalid URL\n") catch {};
+                        std.log.err("Invalid URL", .{});
                         continue;
                     };
 

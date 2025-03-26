@@ -4,16 +4,20 @@ const net = std.net;
 const mdc = @import("mod.zig");
 const Connection = @import("../net/connection.zig").Connection;
 
+const log = std.log.scoped(.client);
+
 pub const Client = struct {
     allocator: std.mem.Allocator,
     conn: Connection,
     display_id: u8,
+    verbose: bool,
 
-    pub fn init(allocator: std.mem.Allocator, address: net.Address, display_id: u8) Client {
+    pub fn init(allocator: std.mem.Allocator, address: net.Address, display_id: u8, verbose: bool) Client {
         return Client{
             .allocator = allocator,
             .conn = Connection.init(address, 5),
             .display_id = display_id,
+            .verbose = verbose,
         };
     }
 
@@ -31,8 +35,10 @@ pub const Client = struct {
         const cmd_packet = try command.serialize(self.allocator);
         defer self.allocator.free(cmd_packet);
 
-        std.debug.print("Command: {any}\n", .{command});
-        printBytes(cmd_packet);
+        if (self.verbose) {
+            log.debug("Command: {any}", .{command});
+            printBytes(cmd_packet);
+        }
 
         // Send the command
         _ = try self.conn.send(cmd_packet);
@@ -43,8 +49,11 @@ pub const Client = struct {
 
         // Parse the response, let caller deinit
         const response = try mdc.Response.init(buffer[0..bytes_read], self.allocator);
-        std.debug.print("Response: {any}\n", .{response});
-        printBytes(buffer[0..bytes_read]);
+
+        if (self.verbose) {
+            log.debug("Response: {any}", .{response});
+            printBytes(buffer[0..bytes_read]);
+        }
 
         // Check if response is NAK
         if (response.response_type == .Nak) {
@@ -119,13 +128,21 @@ pub const Client = struct {
 };
 
 fn printBytes(bytes: []u8) void {
-    std.debug.print("[ ", .{});
+    var buf: [1024]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    var string = std.ArrayList(u8).init(fba.allocator());
+
+    // Format the bytes into the buffer
+    string.appendSlice("[ ") catch return;
     for (bytes) |byte| {
         if (std.ascii.isPrint(byte)) {
-            std.debug.print("{X:0>2} ({c}) ", .{ byte, byte });
+            string.writer().print("{X:0>2} ({c}) ", .{ byte, byte }) catch return;
         } else {
-            std.debug.print("{X:0>2} ", .{byte});
+            string.writer().print("{X:0>2} ", .{byte}) catch return;
         }
     }
-    std.debug.print("]\n", .{});
+    string.appendSlice("]") catch return;
+
+    // Log the formatted string
+    log.debug("{s}", .{string.items});
 }

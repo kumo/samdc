@@ -6,6 +6,7 @@ pub const CliError = error{
     InvalidArgCount,
     InvalidAddress,
     InvalidAction,
+    InvalidFlag,
 };
 
 const Action = enum {
@@ -14,6 +15,7 @@ const Action = enum {
     reboot,
     volume,
     url,
+    help,
     unknown,
 
     pub fn fromString(s: []const u8) Action {
@@ -23,6 +25,7 @@ const Action = enum {
             .{ "reboot", .reboot },
             .{ "volume", .volume },
             .{ "url", .url },
+            .{ "help", .help },
         };
 
         for (lookup) |entry| {
@@ -104,20 +107,44 @@ pub const Config = struct {
             return CliError.InvalidArgCount;
         }
 
-        const action = Action.fromString(args[1]);
-        if (action == .unknown) {
-            return CliError.InvalidAction;
-        }
-
         var config = Config.init(allocator);
         errdefer config.deinit();
 
-        config.action = action;
-
-        // Process remaining arguments
-        var i: usize = 2;
+        // Process arguments
+        var i: usize = 1;
         while (i < args.len) : (i += 1) {
             const arg = args[i];
+
+            // Handle flags
+            if (std.mem.startsWith(u8, arg, "--")) {
+                if (std.mem.eql(u8, arg, "--help")) {
+                    config.action = .help;
+                    return config;
+                } else {
+                    return CliError.InvalidFlag;
+                }
+                continue;
+            }
+
+            // Handle short flags
+            if (std.mem.startsWith(u8, arg, "-")) {
+                if (std.mem.eql(u8, arg, "-h")) {
+                    config.action = .help;
+                    return config;
+                } else {
+                    return CliError.InvalidFlag;
+                }
+                continue;
+            }
+
+            // First non-flag argument is the action
+            if (config.action == .unknown) {
+                config.action = Action.fromString(arg);
+                if (config.action == .unknown) {
+                    return CliError.InvalidAction;
+                }
+                continue;
+            }
 
             // Try to parse as IP address
             if (std.net.Address.parseIp4(arg, 1515)) |address| {
@@ -137,9 +164,8 @@ pub const Config = struct {
             }
         }
 
-        // Ensure we have at least one address
-        if (config.addresses.items.len == 0) {
-            return CliError.InvalidAddress;
+        if (config.action == .unknown) {
+            return CliError.InvalidAction;
         }
 
         return config;
@@ -178,7 +204,9 @@ pub const Display = struct {
     }
 
     pub fn printUsage(self: Display) void {
-        self.writer.writeAll("Usage: samdc <command> [args] [ip_addresses...]\n\n") catch {};
+        self.writer.writeAll("Usage: samdc [options] <command> [args] [ip_addresses...]\n\n") catch {};
+        self.writer.writeAll("Options:\n") catch {};
+        self.writer.writeAll("  -h, --help     Show this help message\n") catch {};
         self.writer.writeAll("Commands:\n") catch {};
         self.writer.writeAll("  wake            Turn on the display\n") catch {};
         self.writer.writeAll("  sleep           Turn off the display\n") catch {};
@@ -198,6 +226,7 @@ pub const Display = struct {
             error.InvalidAddress => self.writer.writeAll("Invalid IP address\n") catch {},
             error.ConnectionRefused => self.writer.writeAll("Couldn't contact device: connection refused\n") catch {},
             error.InvalidAction => self.writer.writeAll("Invalid action\n") catch {},
+            error.InvalidFlag => self.writer.writeAll("Invalid flag\n") catch {},
             else => self.writer.print("Error: {}\n", .{err}) catch {},
         }
     }

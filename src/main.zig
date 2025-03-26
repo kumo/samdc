@@ -19,6 +19,14 @@ pub fn main() !void {
     };
     defer config.deinit();
 
+    // Handle special actions first
+    switch (config.action) {
+        .help => {
+            display.printUsage();
+            return;
+        },
+        else => {},
+    }
     // Execute command for each address
     for (config.addresses.items) |address| {
         var client = mdc.Client.init(allocator, address, 0); // Default Display ID

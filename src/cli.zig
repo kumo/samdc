@@ -9,7 +9,6 @@ pub const CliError = error{
 };
 
 const Action = enum {
-    demo,
     wake,
     sleep,
     reboot,
@@ -19,7 +18,6 @@ const Action = enum {
 
     pub fn fromString(s: []const u8) Action {
         const lookup = [_]struct { []const u8, Action }{
-            .{ "demo", .demo },
             .{ "wake", .wake },
             .{ "sleep", .sleep },
             .{ "reboot", .reboot },
@@ -179,39 +177,9 @@ pub const Display = struct {
         };
     }
 
-    pub fn showExamples(self: Display, client: *mdc.Client, allocator: std.mem.Allocator) !void {
-        // Example 1: Power Status Query (aa:11:00:00:11)
-        {
-            const is_on = try client.getPowerStatus();
-            try self.writer.print("Power status: {s}\n", .{if (is_on) "ON" else "OFF"});
-        }
-
-        // Example 2: Power On Command (aa:11:00:01:01:13)
-        {
-            try client.setPower(true);
-            try self.writer.writeAll("Sent Power On Command");
-        }
-
-        // Example 3: Launcher URL Status Query (aa:c7:00:01:82:4a)
-        {
-            const url = try client.getLauncherUrl();
-            defer allocator.free(url);
-
-            try self.writer.print("Launcher URL is: {s}\n", .{url});
-        }
-
-        // Example 4: Set Launcher URL (aa:c7:00:13:82 + "http://example.com" + 0d)
-        {
-            const url = "http://example.com";
-            try client.setLauncherUrl(url);
-            try self.writer.writeAll("Sent URL Command");
-        }
-    }
-
     pub fn printUsage(self: Display) void {
         self.writer.writeAll("Usage: samdc <command> [args] [ip_addresses...]\n\n") catch {};
         self.writer.writeAll("Commands:\n") catch {};
-        self.writer.writeAll("  demo            Run a demo sequence\n") catch {};
         self.writer.writeAll("  wake            Turn on the display\n") catch {};
         self.writer.writeAll("  sleep           Turn off the display\n") catch {};
         self.writer.writeAll("  reboot          Reboot the display\n") catch {};

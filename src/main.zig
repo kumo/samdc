@@ -30,11 +30,6 @@ pub fn main() !void {
         }
 
         switch (config.action) {
-            .demo => {
-                display.showExamples(&client, allocator) catch |err| {
-                    display.showError(err);
-                };
-            },
             .wake => {
                 client.setPower(true) catch |err| {
                     display.showError(err);

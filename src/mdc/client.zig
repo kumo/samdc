@@ -12,7 +12,7 @@ pub const Client = struct {
     pub fn init(allocator: std.mem.Allocator, address: net.Address, display_id: u8) Client {
         return Client{
             .allocator = allocator,
-            .conn = Connection.init(address),
+            .conn = Connection.init(address, 5),
             .display_id = display_id,
         };
     }

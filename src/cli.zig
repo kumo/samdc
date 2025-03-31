@@ -81,6 +81,7 @@ pub const Config = struct {
     addresses: std.ArrayList(std.net.Address),
     positional_args: std.ArrayList(CommandArg),
     verbose: bool = false,
+    timeout: u32 = 5,
 
     pub fn init(allocator: std.mem.Allocator) Config {
         return .{
@@ -89,6 +90,7 @@ pub const Config = struct {
             .addresses = std.ArrayList(std.net.Address).init(allocator),
             .positional_args = std.ArrayList(CommandArg).init(allocator),
             .verbose = false,
+            .timeout = 5,
         };
     }
 
@@ -126,6 +128,33 @@ pub const Config = struct {
                 } else if (std.mem.eql(u8, arg, "--version")) {
                     config.action = .version;
                     return config;
+                } else if (std.mem.eql(u8, arg, "--timeout")) {
+                    // Check if a value exists after the flag
+                    if (i + 1 >= args.len) {
+                        std.log.warn("Missing value for --timeout flag", .{});
+                        return CliError.InvalidFlag;
+                    }
+                    const timeout_str = args[i + 1];
+                    // Try parsing, mapping errors to InvalidFlag
+                    const parsed_timeout = std.fmt.parseInt(u32, timeout_str, 10) catch |err| {
+                        std.log.warn("Invalid value for --timeout flag: '{s}' ({s})", .{ timeout_str, @errorName(err) });
+                        return CliError.InvalidFlag;
+                    };
+
+                    // Validate the parsed value (must be > 0)
+                    if (parsed_timeout == 0) {
+                        std.log.warn("Timeout value must be greater than zero, got {d}", .{parsed_timeout});
+                        return CliError.InvalidFlag;
+                    }
+
+                    // Validate upper bound
+                    if (parsed_timeout > 120) {
+                        std.log.warn("Timeout value must be less than 120 seconds, got {d}", .{parsed_timeout});
+                        return CliError.InvalidFlag;
+                    }
+
+                    config.timeout = parsed_timeout;
+                    i += 1; // Consume the value argument as well
                 } else {
                     return CliError.InvalidFlag;
                 }
@@ -230,7 +259,8 @@ pub const Display = struct {
         self.writer.writeAll("Options:\n") catch {};
         self.writer.writeAll("  -h, --help     Show this help message\n") catch {};
         self.writer.writeAll("  -v, --version  Show version information\n") catch {};
-        self.writer.writeAll("  --verbose      Enable verbose output\n\n") catch {};
+        self.writer.writeAll("  --verbose      Enable verbose output\n") catch {};
+        self.writer.writeAll("  --timeout      Set timeout in seconds (default 5)\n\n") catch {};
         self.writer.writeAll("Commands:\n") catch {};
         self.writer.writeAll("  on              Turn on the device\n") catch {};
         self.writer.writeAll("  off             Turn off the display\n") catch {};
@@ -464,4 +494,54 @@ test "Parse mixed positional args and addresses" {
     const arg2 = config.positional_args.items[2];
     try testing.expectEqualStrings("Integer", @tagName(arg2));
     try testing.expectEqual(@as(u32, 50), try arg2.asInteger());
+}
+
+test "Parse timeout flag" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "--timeout", "10", "on", "192.168.1.1" };
+    var config = try Config.fromArgs(allocator, &args);
+    defer config.deinit();
+
+    try testing.expectEqual(10, config.timeout);
+}
+
+test "Parse timeout flag with non-integer value" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "--timeout", "not_an_integer", "on", "192.168.1.1" };
+    const result = Config.fromArgs(allocator, &args);
+    try testing.expectError(CliError.InvalidFlag, result);
+}
+
+test "Parse timeout flag with negative value" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "--timeout", "-1", "on", "192.168.1.1" };
+    const result = Config.fromArgs(allocator, &args);
+    try testing.expectError(CliError.InvalidFlag, result);
+}
+
+test "Parse timeout flag with zero value" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "--timeout", "0", "on", "192.168.1.1" };
+    const result = Config.fromArgs(allocator, &args);
+    try testing.expectError(CliError.InvalidFlag, result);
+}
+
+test "Parse timeout flag with large value" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "--timeout", "1000000", "on", "192.168.1.1" };
+    const result = Config.fromArgs(allocator, &args);
+    try testing.expectError(CliError.InvalidFlag, result);
+}
+
+test "Parse timeout flag without a value" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "--timeout", "on", "192.168.1.1" };
+    const result = Config.fromArgs(allocator, &args);
+    try testing.expectError(CliError.InvalidFlag, result);
 }

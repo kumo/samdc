@@ -36,7 +36,7 @@ pub fn main() !void {
 
     // Execute command for each address
     for (config.addresses.items) |address| {
-        var client = mdc.Client.init(allocator, address, 0, config.verbose); // Default Display ID
+        var client = mdc.Client.init(allocator, address, 0, config.verbose, config.timeout); // Default Display ID
         defer client.deinit();
 
         // Show address if multiple targets or verbose mode

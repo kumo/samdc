@@ -12,10 +12,10 @@ pub const Client = struct {
     display_id: u8,
     verbose: bool,
 
-    pub fn init(allocator: std.mem.Allocator, address: net.Address, display_id: u8, verbose: bool) Client {
+    pub fn init(allocator: std.mem.Allocator, address: net.Address, display_id: u8, verbose: bool, timeout: u32) Client {
         return Client{
             .allocator = allocator,
-            .conn = Connection.init(address, 5),
+            .conn = Connection.init(address, timeout),
             .display_id = display_id,
             .verbose = verbose,
         };

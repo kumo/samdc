@@ -10,8 +10,8 @@ SaMDC is designed as a more user-friendly alternative to existing Samsung MDC to
 
 - Basic display control commands:
   - `reboot`: Restart the display
-  - `wake`: Power on the display
-  - `sleep`: Put the display to sleep
+  - `on`: Power on the display
+  - `off`: Power off the display
   - `volume`: Get or set the volume
   - `url`: Get or set the launcher url
 
@@ -29,8 +29,8 @@ SaMDC is designed as a more user-friendly alternative to existing Samsung MDC to
 # Reboot a display
 samdc reboot 10.10.10.10
 
-# Wake up multiple displays
-samdc wake 10.10.10.10 11.11.11.11
+# Power on multiple displays
+samdc on 10.10.10.10 11.11.11.11
 
 # Change the volume of a display
 samdc volume 50 10.10.10.10

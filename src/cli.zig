@@ -10,8 +10,8 @@ pub const CliError = error{
 };
 
 const Action = enum {
-    wake,
-    sleep,
+    on,
+    off,
     reboot,
     volume,
     url,
@@ -21,8 +21,8 @@ const Action = enum {
 
     pub fn fromString(s: []const u8) Action {
         const lookup = [_]struct { []const u8, Action }{
-            .{ "wake", .wake },
-            .{ "sleep", .sleep },
+            .{ "on", .on },
+            .{ "off", .off },
             .{ "reboot", .reboot },
             .{ "volume", .volume },
             .{ "url", .url },
@@ -230,14 +230,14 @@ pub const Display = struct {
         self.writer.writeAll("  -v, --version  Show version information\n") catch {};
         self.writer.writeAll("  --verbose      Enable verbose output\n\n") catch {};
         self.writer.writeAll("Commands:\n") catch {};
-        self.writer.writeAll("  wake            Turn on the display\n") catch {};
-        self.writer.writeAll("  sleep           Turn off the display\n") catch {};
+        self.writer.writeAll("  on              Turn on the device\n") catch {};
+        self.writer.writeAll("  off             Turn off the display\n") catch {};
         self.writer.writeAll("  reboot          Reboot the display\n") catch {};
         self.writer.writeAll("  volume [level]  Get or set volume level (0-100)\n") catch {};
         self.writer.writeAll("  url [value]     Get or set launcher URL\n") catch {};
         self.writer.writeAll("\nExamples:\n") catch {};
         self.writer.writeAll("  samdc reboot 192.168.1.1                  # Reboot single display\n") catch {};
-        self.writer.writeAll("  samdc wake 192.168.1.1 192.168.1.2        # Wake multiple displays\n") catch {};
+        self.writer.writeAll("  samdc on 192.168.1.1 192.168.1.2          # Turn on multiple displays\n") catch {};
         self.writer.writeAll("  samdc volume 50 192.168.1.1 192.168.1.2   # Set volume on multiple displays\n") catch {};
         self.writer.writeAll("  samdc url http://example.com 192.168.1.1  # Set URL on a display\n") catch {};
     }

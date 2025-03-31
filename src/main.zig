@@ -43,19 +43,19 @@ pub fn main() !void {
         }
 
         switch (config.action) {
-            .wake => {
+            .on => {
                 client.setPower(true) catch |err| {
                     display.showError(err);
                     continue;
                 };
-                display.writer.writeAll("Wake command sent\n") catch {};
+                display.writer.writeAll("Turn on command sent\n") catch {};
             },
-            .sleep => {
+            .off => {
                 client.setPower(false) catch |err| {
                     display.showError(err);
                     continue;
                 };
-                display.writer.writeAll("Sleep command sent\n") catch {};
+                display.writer.writeAll("Turn off command sent\n") catch {};
             },
             .reboot => {
                 client.reboot() catch |err| {

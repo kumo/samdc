@@ -1,4 +1,5 @@
 const std = @import("std");
+const testing = std.testing;
 
 const mdc = @import("mdc/mod.zig");
 
@@ -102,10 +103,7 @@ pub const Config = struct {
         self.positional_args.deinit();
     }
 
-    pub fn fromArgs(allocator: std.mem.Allocator) !Config {
-        const args = try std.process.argsAlloc(allocator);
-        defer std.process.argsFree(allocator, args);
-
+    pub fn fromArgs(allocator: std.mem.Allocator, args: []const []const u8) !Config {
         if (args.len < 2) {
             return CliError.InvalidArgCount;
         }
@@ -113,12 +111,12 @@ pub const Config = struct {
         var config = Config.init(allocator);
         errdefer config.deinit();
 
-        // Process arguments
-        var i: usize = 1;
+        // Process arguments starting from index 1 (skip program name)
+        var i: usize = 1; // Start from 1 instead of 0
         while (i < args.len) : (i += 1) {
-            const arg = args[i];
+            const arg = args[i]; // arg is now correctly []const u8
 
-            // Handle flags
+            // Handle flags - use 'arg' directly, not 'arg[0]'
             if (std.mem.startsWith(u8, arg, "--")) {
                 if (std.mem.eql(u8, arg, "--help")) {
                     config.action = .help;
@@ -134,7 +132,7 @@ pub const Config = struct {
                 continue;
             }
 
-            // Handle short flags
+            // Handle short flags - use 'arg' directly
             if (std.mem.startsWith(u8, arg, "-")) {
                 if (std.mem.eql(u8, arg, "-h")) {
                     config.action = .help;
@@ -147,7 +145,7 @@ pub const Config = struct {
                 continue;
             }
 
-            // First non-flag argument is the action
+            // First non-flag argument is the action - use 'arg' directly
             if (config.action == .unknown) {
                 config.action = Action.fromString(arg);
                 if (config.action == .unknown) {
@@ -156,19 +154,23 @@ pub const Config = struct {
                 continue;
             }
 
-            // Try to parse as IP address
+            // Try to parse as IP address - use 'arg' directly
             if (std.net.Address.parseIp4(arg, 1515)) |address| {
                 try config.addresses.append(address);
                 continue;
             } else |_| {}
 
             // Handle positional arguments
-            // Try to parse as integer first
+            // Try to parse as integer first - use 'arg' directly
             if (std.fmt.parseInt(u32, arg, 10)) |int_val| {
                 try config.positional_args.append(.{ .Integer = int_val });
             } else |_| {
-                // Make a copy of the string to avoid use-after-free
+                // Make a copy of the string - use 'arg' directly
                 const str_copy = try allocator.dupe(u8, arg);
+                // errdefer allocator.free(str_copy); // Keep errdefer for the dupe call itself
+                // Important: The 'errdefer' for freeing str_copy should remain here
+                // in case the *subsequent* append call fails.
+                // If fromArgs itself fails later, config.deinit() handles freeing.
                 errdefer allocator.free(str_copy);
                 try config.positional_args.append(.{ .String = str_copy });
             }
@@ -253,3 +255,213 @@ pub const Display = struct {
         }
     }
 };
+
+test "Parse simple command" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "on", "192.168.1.10" };
+    var config = try Config.fromArgs(allocator, &args);
+    defer config.deinit();
+
+    try testing.expectEqual(Action.on, config.action);
+    try testing.expectEqual(@as(usize, 1), config.addresses.items.len);
+    const expected_addr = try std.net.Address.parseIp4("192.168.1.10", 1515);
+    try testing.expect(expected_addr.eql(config.addresses.items[0]));
+    try testing.expectEqual(@as(usize, 0), config.positional_args.items.len);
+    try testing.expectEqual(false, config.verbose);
+}
+
+test "Parse command with numeric arg" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "volume", "75", "10.0.0.1" };
+    var config = try Config.fromArgs(allocator, &args);
+    defer config.deinit();
+
+    try testing.expectEqual(Action.volume, config.action);
+    try testing.expectEqual(@as(usize, 1), config.addresses.items.len);
+    const expected_addr = try std.net.Address.parseIp4("10.0.0.1", 1515);
+    try testing.expect(expected_addr.eql(config.addresses.items[0]));
+    try testing.expectEqual(@as(usize, 1), config.positional_args.items.len);
+    const vol_arg = config.positional_args.items[0];
+    try testing.expectEqualStrings("Integer", @tagName(vol_arg));
+    try testing.expectEqual(@as(u32, 75), try vol_arg.asInteger());
+    try testing.expectEqual(false, config.verbose);
+}
+
+test "Parse command with text arg" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "url", "http://example.com", "10.0.0.1" };
+    var config = try Config.fromArgs(allocator, &args);
+    defer config.deinit(); // deinit will free the duped string
+
+    try testing.expectEqual(Action.url, config.action);
+    try testing.expectEqual(@as(usize, 1), config.addresses.items.len);
+    const expected_addr = try std.net.Address.parseIp4("10.0.0.1", 1515);
+    try testing.expect(expected_addr.eql(config.addresses.items[0]));
+    try testing.expectEqual(@as(usize, 1), config.positional_args.items.len);
+    const url_arg = config.positional_args.items[0];
+    try testing.expectEqualStrings("String", @tagName(url_arg));
+    try testing.expectEqualStrings("http://example.com", url_arg.String);
+    try testing.expectEqual(false, config.verbose);
+}
+
+test "Parse simple command with multiple IPs" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "off", "192.168.1.10", "192.168.1.11" };
+    var config = try Config.fromArgs(allocator, &args);
+    defer config.deinit();
+
+    try testing.expectEqual(Action.off, config.action);
+    try testing.expectEqual(@as(usize, 2), config.addresses.items.len);
+    const expected_addr1 = try std.net.Address.parseIp4("192.168.1.10", 1515);
+    const expected_addr2 = try std.net.Address.parseIp4("192.168.1.11", 1515);
+    try testing.expect(expected_addr1.eql(config.addresses.items[0]));
+    try testing.expect(expected_addr2.eql(config.addresses.items[1]));
+    try testing.expectEqual(@as(usize, 0), config.positional_args.items.len);
+    try testing.expectEqual(false, config.verbose);
+}
+
+test "Parse command with verbose flag" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "--verbose", "on", "192.168.1.10" };
+    var config = try Config.fromArgs(allocator, &args);
+    defer config.deinit();
+    try testing.expectEqual(Action.on, config.action);
+    try testing.expectEqual(true, config.verbose);
+}
+
+test "Parse command with short verbose flag" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "-v", "on", "192.168.1.10" };
+    var config = try Config.fromArgs(allocator, &args);
+    defer config.deinit();
+    try testing.expectEqual(Action.on, config.action);
+    try testing.expectEqual(true, config.verbose);
+}
+
+test "Parse help flag" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "--help" };
+    var config = try Config.fromArgs(allocator, &args);
+    defer config.deinit();
+    try testing.expectEqual(Action.help, config.action);
+}
+
+test "Parse short help flag" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "-h" };
+    var config = try Config.fromArgs(allocator, &args);
+    defer config.deinit();
+    try testing.expectEqual(Action.help, config.action);
+}
+
+test "Help flag should take precendence" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "on", "192.168.1.1", "--help" };
+    var config = try Config.fromArgs(allocator, &args);
+    defer config.deinit();
+    try testing.expectEqual(Action.help, config.action);
+}
+
+test "Parse version flag" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "--version" };
+    var config = try Config.fromArgs(allocator, &args);
+    defer config.deinit();
+    try testing.expectEqual(Action.version, config.action);
+}
+
+test "Parse invalid action" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "invalidaction", "192.168.1.1" };
+    const result = Config.fromArgs(allocator, &args);
+    try testing.expectError(CliError.InvalidAction, result);
+}
+
+test "Parse invalid flag" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "--invalidflag", "on", "192.168.1.1" };
+    const result = Config.fromArgs(allocator, &args);
+    try testing.expectError(CliError.InvalidFlag, result);
+}
+
+test "Parse invalid short flag" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "-x", "on", "192.168.1.1" };
+    const result = Config.fromArgs(allocator, &args);
+    try testing.expectError(CliError.InvalidFlag, result);
+}
+
+test "Parse missing ip address (for non-help/version)" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "on" };
+    const result = Config.fromArgs(allocator, &args);
+    try testing.expectError(CliError.InvalidAddress, result);
+}
+
+test "Parse missing action" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "192.168.1.1" };
+    const result = Config.fromArgs(allocator, &args);
+    try testing.expectError(CliError.InvalidAction, result);
+}
+
+test "Parse flag without action" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "--verbose" };
+    const result = Config.fromArgs(allocator, &args);
+    try testing.expectError(CliError.InvalidAction, result);
+}
+
+test "Parse no arguments" {
+    const allocator = testing.allocator;
+
+    const args1 = [_][]const u8{"samdc"};
+    const result1 = Config.fromArgs(allocator, &args1);
+    try testing.expectError(CliError.InvalidArgCount, result1);
+}
+
+test "Parse mixed positional args and addresses" {
+    const allocator = testing.allocator;
+
+    const args = [_][]const u8{ "samdc", "url", "http://a.com", "10.0.0.1", "some_string", "50", "10.0.0.2" };
+    // Parses as: action=url, pos="http://a.com", addr=10.0.0.1, pos="some_string", pos=50, addr=10.0.0.2
+    var config = try Config.fromArgs(allocator, &args);
+    defer config.deinit();
+
+    try testing.expectEqual(Action.url, config.action);
+    try testing.expectEqual(@as(usize, 2), config.addresses.items.len);
+    const expected_addr1 = try std.net.Address.parseIp4("10.0.0.1", 1515);
+    const expected_addr2 = try std.net.Address.parseIp4("10.0.0.2", 1515);
+    try testing.expect(expected_addr1.eql(config.addresses.items[0]));
+    try testing.expect(expected_addr2.eql(config.addresses.items[1]));
+
+    try testing.expectEqual(@as(usize, 3), config.positional_args.items.len);
+    // arg 0: "http://a.com" (String)
+    const arg0 = config.positional_args.items[0];
+    try testing.expectEqualStrings("String", @tagName(arg0));
+    try testing.expectEqualStrings("http://a.com", arg0.String);
+    // arg 1: "some_string" (String)
+    const arg1 = config.positional_args.items[1];
+    try testing.expectEqualStrings("String", @tagName(arg1));
+    try testing.expectEqualStrings("some_string", arg1.String);
+    // arg 2: 50 (Integer)
+    const arg2 = config.positional_args.items[2];
+    try testing.expectEqualStrings("Integer", @tagName(arg2));
+    try testing.expectEqual(@as(u32, 50), try arg2.asInteger());
+}

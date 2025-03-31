@@ -13,7 +13,9 @@ pub fn main() !void {
     var display = cli.Display.init();
 
     // Parse command line arguments
-    var config = cli.Config.fromArgs(allocator) catch |err| {
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+    var config = cli.Config.fromArgs(allocator, args) catch |err| {
         display.showError(err);
         return;
     };

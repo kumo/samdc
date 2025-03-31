@@ -242,7 +242,7 @@ pub const Config = struct {
 
 pub const Display = struct {
     writer: std.fs.File.Writer,
-    const VERSION = "0.1.0";
+    const VERSION = "0.1.1";
 
     pub fn init() Display {
         return .{

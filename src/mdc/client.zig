@@ -48,7 +48,7 @@ pub const Client = struct {
         const bytes_read = try self.conn.receive(&buffer);
 
         // Parse the response, let caller deinit
-        const response = try mdc.Response.init(buffer[0..bytes_read], self.allocator);
+        var response = try mdc.Response.init(buffer[0..bytes_read], self.allocator);
 
         if (self.verbose) {
             log.debug("Response: {any}", .{response});
@@ -57,6 +57,8 @@ pub const Client = struct {
 
         // Check if response is NAK
         if (response.response_type == .Nak) {
+            // Clean up allocated memory before returning error
+            response.deinit();
             return mdc.Error.NakReceived;
         }
 

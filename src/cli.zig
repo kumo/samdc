@@ -18,6 +18,7 @@ const Action = enum {
     url,
     help,
     version,
+    serial,
     unknown,
 
     pub fn fromString(s: []const u8) Action {
@@ -28,6 +29,9 @@ const Action = enum {
             .{ "volume", .volume },
             .{ "url", .url },
             .{ "help", .help },
+            .{ "serial", .serial },
+            .{ "serial_num", .serial },
+            .{ "serial_number", .serial },
         };
 
         for (lookup) |entry| {

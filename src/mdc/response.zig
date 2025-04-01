@@ -116,6 +116,25 @@ pub const Response = struct {
         if (self.data.len < 1) return error.InvalidDataLength;
         return self.data[0];
     }
+
+    // Helper to parse serial response
+    pub fn getSerial(self: Response) ![]const u8 {
+        if (self.command != .Serial) return error.WrongCommandType;
+        if (self.data.len < 15) return error.InvalidDataLength;
+
+        // Verify all bytes are printable ASCII
+        for (self.data[0..15]) |byte| {
+            if (!std.ascii.isPrint(byte)) return error.InvalidSerialData;
+        }
+
+        // Find the first null terminator
+        var end_idx: usize = 0;
+        while (end_idx < 15) : (end_idx += 1) {
+            if (self.data[end_idx] == 0) break;
+        }
+
+        return self.data[0..end_idx];
+    }
 };
 
 test "Response - Parse Power Status" {
@@ -143,4 +162,13 @@ test "Response - Invalid Checksum" {
 test "Response - Packet Too Short" {
     const response_bytes = [_]u8{ 0xAA, 0xFF, 0x00, 0x41, 0x11, 0x00 }; // Too short
     try testing.expectError(mdc.Error.PacketTooShort, Response.init(&response_bytes, testing.allocator));
+}
+
+test "Response - Serial" {
+    const response_bytes = [_]u8{ 0xAA, 0xFF, 0x00, 0x14, 0x41, 0x0b, 0x30, 0x30, 0x30, 0x34, 0x34, 0x38, 0x38, 0x47, 0x48, 0x4a, 0x4d, 0x4e, 0x51, 0x52, 0x57, 0x00, 0x00, 0x00, 0x35 };
+    var response = try Response.init(&response_bytes, testing.allocator);
+    defer response.deinit();
+
+    const serial = try response.getSerial();
+    try testing.expectEqualStrings("0004488GHJMNQRW", serial);
 }

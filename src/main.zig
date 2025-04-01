@@ -118,6 +118,11 @@ pub fn main() !void {
                     display.writer.print("Current URL: {s}\n", .{url}) catch {};
                 }
             },
+            .serial => {
+                const serial = client.getSerial() catch continue;
+                defer allocator.free(serial);
+                display.writer.print("Serial: {s}\n", .{serial}) catch {};
+            },
             else => {
                 display.writer.writeAll("Command not implemented\n") catch {};
             },

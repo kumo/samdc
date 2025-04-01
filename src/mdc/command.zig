@@ -24,10 +24,15 @@ pub const VolumeData = union(enum) {
     Set: u8,
 };
 
+pub const SerialData = union(enum) {
+    Status,
+};
+
 pub const CommandData = union(mdc.Protocol.CommandType) {
     Power: PowerData,
     LauncherUrl: LauncherData,
     Volume: VolumeData,
+    Serial: SerialData,
 
     pub fn getCommandData(self: CommandData, allocator: std.mem.Allocator) ![]const u8 {
         // Determine the data to return
@@ -51,6 +56,7 @@ pub const CommandData = union(mdc.Protocol.CommandType) {
                 .Status => &[_]u8{}, // Static empty slice
                 .Set => |level| &[_]u8{level}, // Use the volume level
             },
+            .Serial => &[_]u8{}, // Static empty slice
         };
 
         return allocator.dupe(u8, data);

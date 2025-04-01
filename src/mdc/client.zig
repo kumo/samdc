@@ -127,6 +127,17 @@ pub const Client = struct {
         var response = try self.sendCommand(command);
         defer response.deinit();
     }
+
+    // Serial
+    pub fn getSerial(self: *Client) ![]const u8 {
+        const command = mdc.Command.init(.{ .Serial = .Status }, self.display_id);
+
+        var response = try self.sendCommand(command);
+        defer response.deinit();
+
+        const serial = try response.getSerial();
+        return try self.allocator.dupe(u8, serial);
+    }
 };
 
 fn printBytes(bytes: []u8) void {

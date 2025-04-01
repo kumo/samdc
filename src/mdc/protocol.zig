@@ -15,4 +15,5 @@ pub const CommandType = enum(u8) {
     Power = 0x11,
     LauncherUrl = 0xC7,
     Volume = 0x12,
+    Serial = 0x0B,
 };

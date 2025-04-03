@@ -11,13 +11,14 @@ pub const Client = struct {
     conn: Connection,
     display_id: u8,
     verbose: bool,
-
+    packet_logger: mdc.PacketLogger,
     pub fn init(allocator: std.mem.Allocator, address: net.Address, display_id: u8, verbose: bool, timeout: u32) Client {
         return Client{
             .allocator = allocator,
             .conn = Connection.init(address, timeout),
             .display_id = display_id,
             .verbose = verbose,
+            .packet_logger = mdc.PacketLogger.init(allocator, verbose, std.io.getStdOut().writer()),
         };
     }
 
@@ -38,6 +39,7 @@ pub const Client = struct {
         if (self.verbose) {
             log.debug("Command: {any}", .{command});
             printBytes(cmd_packet);
+            try self.packet_logger.log(cmd_packet);
         }
 
         // Send the command
@@ -53,6 +55,7 @@ pub const Client = struct {
         if (self.verbose) {
             log.debug("Response: {any}", .{response});
             printBytes(buffer[0..bytes_read]);
+            try self.packet_logger.log(buffer[0..bytes_read]);
         }
 
         // Check if response is NAK

@@ -348,18 +348,78 @@ pub const Display = struct {
     }
 
     pub fn logCommand(self: *Display, command: *const mdc.Command, raw_tx_bytes: []const u8) !void {
-        _ = self;
-        _ = command;
-        _ = raw_tx_bytes;
-        // TODO: Print annotated command / raw bytes based on output_mode (Normal/Verbose/Json+Verbose->stderr)
-        // Will need internal helpers for formatting
+        switch (self.output_mode) {
+            .Quiet => return, // Do nothing in quiet mode
+            .Json => {
+                // For JSON, only log packets to stderr if verbose is also enabled
+                // TODO: Need to check if verbose is actually enabled when mode is Json.
+                // We need to adjust how modes are stored/checked. For now, assume Json mode means non-verbose stderr.
+                // Let's refine this when implementing full `--json --verbose`.
+                // For now, JSON means no packet logging to stdout/stderr.
+                return;
+            },
+            .Normal, .Verbose => {
+                // Determine the writer (currently always stdout for Normal/Verbose)
+                const writer = self.writer;
+
+                // Get the placeholder annotated packet string
+                const annotated_string = self.formatAnnotatedPacket(.Tx, command, null) catch |err| {
+                    // Log formatting errors to stderr
+                    self.err_writer.print("Error formatting TX packet: {s}\n", .{@errorName(err)}) catch {};
+                    return; // Don't proceed if formatting failed
+                };
+                defer self.allocator.free(annotated_string);
+
+                // Print the annotated packet
+                // TODO: Add tree/box formatting prefixes later
+                try writer.print("{s}\n", .{annotated_string});
+
+                // If verbose, also print the hex dump
+                if (self.output_mode == .Verbose) {
+                    const hex_dump = self.formatHexDump(raw_tx_bytes) catch |err| {
+                        self.err_writer.print("Error formatting TX hex dump: {s}\n", .{@errorName(err)}) catch {};
+                        return;
+                    };
+                    defer self.allocator.free(hex_dump);
+                    // TODO: Add indentation later
+                    try writer.print("  {s}\n", .{hex_dump});
+                }
+            },
+        }
     }
 
     pub fn logResponse(self: *Display, response: *const mdc.Response) !void {
-        _ = self;
-        _ = response;
-        // TODO: Print annotated response / raw bytes based on output_mode (Normal/Verbose/Json+Verbose->stderr)
-        // Will need internal helpers for formatting
+        switch (self.output_mode) {
+            .Quiet => return,
+            .Json => {
+                // As with logCommand, JSON currently means no packet logging to stdout/stderr.
+                // TODO: Refine for --json --verbose later.
+                return;
+            },
+            .Normal, .Verbose => {
+                const writer = self.writer;
+
+                // Format annotated packet using the Response struct
+                const annotated_string = self.formatAnnotatedPacket(.Rx, null, response) catch |err| {
+                    self.err_writer.print("Error formatting RX packet: {s}\n", .{@errorName(err)}) catch {};
+                    return;
+                };
+                defer self.allocator.free(annotated_string);
+
+                // Print annotated packet
+                try writer.print("{s}\n", .{annotated_string});
+
+                // If verbose, print hex dump using raw bytes stored in Response
+                if (self.output_mode == .Verbose) {
+                    const hex_dump = self.formatHexDump(response.raw_packet_alloc) catch |err| {
+                        self.err_writer.print("Error formatting RX hex dump: {s}\n", .{@errorName(err)}) catch {};
+                        return;
+                    };
+                    defer self.allocator.free(hex_dump);
+                    try writer.print("  {s}\n", .{hex_dump});
+                }
+            },
+        }
     }
 
     // Need a structure to pass result data, similar to ActionResult

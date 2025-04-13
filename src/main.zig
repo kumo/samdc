@@ -43,6 +43,12 @@ pub fn main() !void {
         var client = mdc.Client.init(allocator, address, 0, &display, config.timeout);
         defer client.deinit();
 
+        // Call startCommand here
+        display.startCommand(address, @tagName(config.action)) catch |e| {
+            // Log error but continue if possible
+            std.debug.print("ERROR writing start command message: {}\\n", .{e});
+        };
+
         // Logging the target address can be handled by display.startCommand later
         // if (config.addresses.items.len > 1 or config.verbose) {
         //     std.log.debug("Executing command on {}", .{address});

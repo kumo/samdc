@@ -343,10 +343,17 @@ pub const Display = struct {
     // (Actual implementation to follow)
 
     pub fn startCommand(self: *Display, ip: std.net.Address, action_name: []const u8) !void {
-        _ = self;
-        _ = ip;
-        _ = action_name;
-        // TODO: Print start message based on output_mode (Normal/Verbose)
+        // Print start message only for Normal/Verbose modes
+        switch (self.output_mode) {
+            .Normal, .Verbose => {
+                // TODO: Add tree/box prefix later
+                const bold = if (self.use_color) Color.BOLD else "";
+                const reset = if (self.use_color) Color.RESET else "";
+                // Make action name bold
+                try self.writer.print("Executing {s}'{s}'{s} on {}...\n", .{ bold, action_name, reset, ip });
+            },
+            .Quiet, .Json => {}, // Do nothing for these modes
+        }
     }
 
     pub fn logCommand(self: *Display, command: *const mdc.Command, raw_tx_bytes: []const u8) !void {
@@ -536,15 +543,21 @@ pub const Display = struct {
                 },
                 .Normal, .Verbose => {
                     // Format: [IP] Success: <details> / Error: <type>
-                    // Use {} for net.Address formatting
+                    const bold = if (self.use_color) Color.BOLD else "";
+                    const reset = if (self.use_color) Color.RESET else "";
+                    const green = if (self.use_color) Color.GREEN else "";
+                    const red = if (self.use_color) Color.RED else "";
+                    const cyan = if (self.use_color) Color.CYAN else ""; // For values
+
                     // TODO: Add tree/box formatting prefixes later
                     switch (result) {
-                        .Success => try writer.print("[{}] Success\n", .{ip}),
-                        .Volume => |v| try writer.print("[{}] Success: Volume={d}\n", .{ ip, v }),
-                        .Url => |v| try writer.print("[{}] Success: URL={s}\n", .{ ip, v }),
-                        .Serial => |v| try writer.print("[{}] Success: Serial={s}\n", .{ ip, v }),
-                        .Power => |v| try writer.print("[{}] Success: Power={s}\n", .{ ip, if (v) "On" else "Off" }),
-                        .Error => |e| try writer.print("[{}] Error: {s}\n", .{ ip, e.error_type }),
+                        // Use positional arguments for simplicity and compiler compatibility
+                        .Success => try writer.print("[{}] {s}{s}Success{s}\n", .{ ip, bold, green, reset }),
+                        .Volume => |v| try writer.print("[{}] {s}{s}Success:{s} Volume={s}{d}{s}\n", .{ ip, bold, green, reset, cyan, v, reset }),
+                        .Url => |v| try writer.print("[{}] {s}{s}Success:{s} URL={s}{s}{s}\n", .{ ip, bold, green, reset, cyan, v, reset }),
+                        .Serial => |v| try writer.print("[{}] {s}{s}Success:{s} Serial={s}{s}{s}\n", .{ ip, bold, green, reset, cyan, v, reset }),
+                        .Power => |v| try writer.print("[{}] {s}{s}Success:{s} Power={s}{s}{s}\n", .{ ip, bold, green, reset, cyan, if (v) "On" else "Off", reset }),
+                        .Error => |e| try writer.print("[{}] {s}{s}Error:{s} {s}{s}{s}\n", .{ ip, bold, red, reset, cyan, e.error_type, reset }),
                     }
                     // Add newline for separation in Normal/Verbose modes
                     try writer.print("\n", .{});
@@ -602,11 +615,16 @@ pub const Display = struct {
 
     pub fn showError(self: *Display, err: anyerror) void {
         // Always print errors to stderr
-        // TODO: Add color support if self.use_color is true
-        self.err_writer.print("Error: {s}\n", .{@errorName(err)}) catch |e| {
+        const red = if (self.use_color) Color.RED else "";
+        const bold = if (self.use_color) Color.BOLD else "";
+        const reset = if (self.use_color) Color.RESET else "";
+
+        // TODO: Could switch on @TypeOf(err) later for more specific messages
+        // or check if err is ConfigError vs mdc.Error etc.
+        self.err_writer.print("{s}{s}Error:{s} {s}\\n", .{ bold, red, reset, @errorName(err) }) catch |e| {
             // If we can't even print to stderr, print to debug log
-            std.debug.print("Critical error writing to stderr: {s}\n", .{@errorName(e)});
-            std.debug.print("Original error was: {s}\n", .{@errorName(err)});
+            std.debug.print("Critical error writing to stderr: {s}\\n", .{@errorName(e)});
+            std.debug.print("Original error was: {s}\\n", .{@errorName(err)});
         };
     }
 

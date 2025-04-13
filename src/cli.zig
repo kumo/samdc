@@ -43,6 +43,13 @@ const Action = enum {
     }
 };
 
+// Errors specific to Config parsing/validation
+pub const ConfigError = error{
+    InvalidVolumeLevel,
+    InvalidUrl,
+    // TODO: Add other config/validation errors here
+};
+
 // Argument types for commands
 pub const CommandArg = union(enum) {
     Integer: u32,

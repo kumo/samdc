@@ -4,6 +4,7 @@ const testing = std.testing;
 
 const cli = @import("cli.zig");
 const mdc = @import("mdc/mod.zig");
+const handlers = @import("handlers.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -55,51 +56,12 @@ pub fn main() !void {
         // }
 
         switch (config.action) {
-            .on => {
-                client.setPower(true) catch continue;
-            },
-            .off => {
-                client.setPower(false) catch continue;
-            },
-            .reboot => {
-                client.reboot() catch continue;
-            },
-            .volume => {
-                if (config.positional_args.items.len > 0) {
-                    // Set volume
-                    const volume_value = config.getPositionalInteger(0) orelse {
-                        std.log.err("Invalid volume level", .{});
-                        continue;
-                    };
-                    if (volume_value > 100) {
-                        std.log.err("Volume must be between 0-100", .{});
-                        continue;
-                    }
-                    client.setVolume(@intCast(volume_value)) catch continue;
-                } else {
-                    // Get volume
-                    const volume = client.getVolume() catch continue;
-                    _ = volume;
-                }
-            },
-            .url => {
-                if (config.positional_args.items.len > 0) {
-                    // Set URL
-                    const url = config.getPositionalString(0) orelse {
-                        std.log.err("Invalid URL", .{});
-                        continue;
-                    };
-                    client.setLauncherUrl(url) catch continue;
-                } else {
-                    // Get URL
-                    const url = client.getLauncherUrl() catch continue;
-                    defer allocator.free(url);
-                }
-            },
-            .serial => {
-                const serial = client.getSerial() catch continue;
-                defer allocator.free(serial);
-            },
+            .on => handlers.handleOn(&client, &display),
+            .off => handlers.handleOff(&client, &display),
+            .reboot => handlers.handleReboot(&client, &display),
+            .volume => handlers.handleVolume(&client, &display, &config),
+            .url => handlers.handleUrl(&client, &display, &config, allocator),
+            .serial => handlers.handleSerial(&client, allocator),
             else => {
                 // This case should ideally not be reachable if actions are validated
                 display.writer.writeAll("Command not implemented\n") catch {};

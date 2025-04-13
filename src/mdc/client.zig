@@ -34,6 +34,7 @@ pub const Client = struct {
         const raw_tx_bytes = try command.serialize(self.allocator);
         defer self.allocator.free(raw_tx_bytes);
 
+        // Pass command struct and raw bytes to logCommand
         try self.display.logCommand(&command, raw_tx_bytes);
 
         _ = try self.conn.send(raw_tx_bytes);
@@ -94,7 +95,7 @@ pub const Client = struct {
         // Use the modified error-finalizing wrapper
         var response = try self.sendCommandAndFinalizeOnError(command);
         defer response.deinit();
-        // Call finalizeResult explicitly on SUCCESS for simple commands
+        // Call finalizeResult explicitly on SUCCESS
         self.display.finalizeResult(self.conn.address, .{ .Success = {} }) catch |e| {
             std.debug.print("ERROR finalizing setPower display: {}\n", .{e});
         };

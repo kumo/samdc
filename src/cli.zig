@@ -297,6 +297,7 @@ pub const Display = struct {
     output_mode: OutputMode,
     color_mode: ColorMode,
     use_color: bool, // Determined by color_mode and TTY checks
+    annotator: mdc.PacketAnnotator, // Added annotator instance
 
     const VERSION = "0.1.2";
 
@@ -327,6 +328,7 @@ pub const Display = struct {
             .output_mode = output_mode,
             .color_mode = color_mode,
             .use_color = use_color,
+            .annotator = mdc.PacketAnnotator.init(allocator), // Initialize annotator
         };
     }
 
@@ -362,8 +364,8 @@ pub const Display = struct {
                 // Determine the writer (currently always stdout for Normal/Verbose)
                 const writer = self.writer;
 
-                // Get the placeholder annotated packet string
-                const annotated_string = self.formatAnnotatedPacket(.Tx, command, null) catch |err| {
+                // Call formatter with command and raw_tx_bytes
+                const annotated_string = self.formatAnnotatedPacket(.Tx, command, null, raw_tx_bytes) catch |err| {
                     // Log formatting errors to stderr
                     self.err_writer.print("Error formatting TX packet: {s}\n", .{@errorName(err)}) catch {};
                     return; // Don't proceed if formatting failed
@@ -399,8 +401,8 @@ pub const Display = struct {
             .Normal, .Verbose => {
                 const writer = self.writer;
 
-                // Format annotated packet using the Response struct
-                const annotated_string = self.formatAnnotatedPacket(.Rx, null, response) catch |err| {
+                // Call formatter with response, passing its internal raw bytes
+                const annotated_string = self.formatAnnotatedPacket(.Rx, null, response, response.raw_packet_alloc) catch |err| {
                     self.err_writer.print("Error formatting RX packet: {s}\n", .{@errorName(err)}) catch {};
                     return;
                 };
@@ -609,24 +611,104 @@ pub const Display = struct {
     }
 
     // --- Internal Helpers (To be implemented) ---
-    fn formatAnnotatedPacket(self: *Display, direction: enum { Tx, Rx }, maybe_command: ?*const mdc.Command, maybe_response: ?*const mdc.Response) ![]u8 {
-        // Placeholder implementation
-        const prefix = switch (direction) {
-            .Tx => "-> TX",
-            .Rx => "<- RX",
+
+    // ANSI Color Codes (nested for encapsulation)
+    const Color = struct {
+        const RESET = "\x1b[0m";
+        const RED = "\x1b[31m";
+        const GREEN = "\x1b[32m";
+        const YELLOW = "\x1b[33m";
+        const BLUE = "\x1b[34m";
+        const MAGENTA = "\x1b[35m";
+        const CYAN = "\x1b[36m";
+        const GRAY = "\x1b[90m";
+        const BOLD = "\x1b[1m";
+    };
+
+    // Helper to choose color based on annotation description
+    fn chooseColor(self: *Display, desc: []const u8) []const u8 {
+        // Return empty strings if color is disabled
+        if (!self.use_color) return "";
+
+        if (std.mem.startsWith(u8, desc, "HDR")) return Color.MAGENTA;
+        if (std.mem.startsWith(u8, desc, "CMD:") or std.mem.startsWith(u8, desc, "ECHO:")) return Color.BLUE;
+        if (std.mem.startsWith(u8, desc, "SUBC:") or std.mem.startsWith(u8, desc, "SUBCE:")) return Color.CYAN;
+        if (std.mem.startsWith(u8, desc, "ID")) return Color.GREEN;
+        if (std.mem.startsWith(u8, desc, "LEN")) return Color.YELLOW;
+        if (std.mem.eql(u8, desc, "ACK")) return Color.GREEN;
+        if (std.mem.eql(u8, desc, "NAK")) return Color.RED;
+        if (std.mem.endsWith(u8, desc, "INV") or std.mem.endsWith(u8, desc, "???") or std.mem.startsWith(u8, desc, "STS:")) return Color.RED;
+        if (std.mem.startsWith(u8, desc, "DATA")) return Color.GRAY;
+        if (std.mem.eql(u8, desc, "CHK")) return Color.MAGENTA;
+        return ""; // Default (no color)
+    }
+
+    // Correct signature and parameter usage for formatAnnotatedPacket
+    fn formatAnnotatedPacket(self: *Display, direction: enum { Tx, Rx }, maybe_command: ?*const mdc.Command, maybe_response: ?*const mdc.Response, raw_bytes: []const u8) ![]u8 {
+        // Determine PacketDirection for annotator
+        const annotator_direction = switch (direction) {
+            .Tx => mdc.PacketAnnotator.PacketDirection.Command,
+            .Rx => mdc.PacketAnnotator.PacketDirection.Response,
         };
-        var info: []const u8 = "Unknown Packet";
+
+        // Annotate the packet using raw_bytes
+        const annotated_bytes = self.annotator.annotate(raw_bytes, annotator_direction) catch |err| {
+            std.debug.print("Packet annotation failed: {}", .{err});
+            return std.fmt.allocPrint(self.allocator, "{s}: <Annotation Failed: {s}>", .{ @tagName(direction), @errorName(err) });
+        };
+        defer self.allocator.free(annotated_bytes);
+
+        // Format the output string
+        var output_string = std.ArrayList(u8).init(self.allocator);
+        defer output_string.deinit();
+        const writer = output_string.writer();
+        const reset_color = if (self.use_color) Color.RESET else "";
+        const bold_color = if (self.use_color) Color.BOLD else "";
+
+        // Add prefix using maybe_command or maybe_response for context
+        var info: []const u8 = "Packet"; // Default info
         if (maybe_command) |cmd| {
             info = @tagName(@as(mdc.CommandType, cmd.command));
         } else if (maybe_response) |resp| {
-            info = @tagName(resp.command);
+            info = @tagName(resp.command); // Use echoed command type
         }
-        return std.fmt.allocPrint(self.allocator, "{s}: {s} (TODO: Detailed Annotation)", .{ prefix, info });
+        try writer.print("{s}{s}({s}){s}: [ ", .{ bold_color, @tagName(direction), info, reset_color });
+
+        // Format annotated bytes
+        for (annotated_bytes) |byte| {
+            const color = self.chooseColor(byte.description);
+            if (std.mem.eql(u8, byte.description, "DATA:Level")) {
+                try writer.print("{s}{s}({X:0>2} -> {d}){s} ", .{ color, byte.description, byte.value, byte.value, reset_color });
+            } else if (std.mem.eql(u8, byte.description, "DATA:Char")) {
+                if (std.ascii.isPrint(byte.value)) {
+                    try writer.print("{s}{s}({X:0>2} -> '{c}'){s} ", .{ color, byte.description, byte.value, byte.value, reset_color });
+                } else {
+                    try writer.print("{s}{s}({X:0>2}){s} ", .{ color, byte.description, byte.value, reset_color });
+                }
+            } else {
+                try writer.print("{s}{s}({X:0>2}){s} ", .{ color, byte.description, byte.value, reset_color });
+            }
+        }
+        try writer.print("]{s}", .{reset_color});
+
+        return output_string.toOwnedSlice();
     }
 
     fn formatHexDump(self: *Display, bytes: []const u8) ![]u8 {
-        // Placeholder implementation
-        return std.fmt.allocPrint(self.allocator, "({d} bytes) (TODO: Hex Dump)", .{bytes.len});
+        // Simple hex dump implementation
+        var string = std.ArrayList(u8).init(self.allocator);
+        defer string.deinit();
+
+        try string.writer().print("({d} bytes) [", .{bytes.len});
+        for (bytes, 0..) |byte, i| { // Keep index for space
+            if (i > 0) {
+                try string.appendSlice(" ");
+            }
+            try string.writer().print("{X:0>2}", .{byte});
+        }
+        try string.appendSlice("]");
+
+        return string.toOwnedSlice();
     }
 };
 

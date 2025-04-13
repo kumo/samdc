@@ -442,85 +442,79 @@ pub const Display = struct {
     pub const FinalResult = union(enum) {
         Success: void,
         Volume: u8,
-        Url: []const u8, // Caller MUST ensure this is valid when finalizeResult is called
-        Serial: []const u8, // Caller MUST ensure this is valid when finalizeResult is called
-        Power: bool, // true=on, false=off
+        Url: []const u8,
+        Serial: []const u8,
+        Power: bool,
         Error: struct {
-            error_type: []const u8, // e.g., @errorName(err)
-            // message: ?[]const u8 = null, // Optional more detailed message
+            error_type: []const u8,
         },
 
-        // TODO: Implement jsonStringify for this struct if needed for JSON output
-        // pub fn jsonStringify(self: FinalResult, writer: anytype) !void { ... }
+        // Implement jsonStringify for FinalResult
+        pub fn jsonStringify(self: FinalResult, writer: anytype) !void {
+            switch (self) {
+                .Error => |e| {
+                    try writer.objectField("status");
+                    try writer.write("error");
+
+                    try writer.objectField("error");
+                    try writer.beginObject(); // Start error: {
+                    try writer.objectField("type");
+                    try writer.write(e.error_type);
+                    // TODO: Add code/message later if desired
+                    try writer.endObject(); // End error: }
+                },
+                else => { // Handle all success cases
+                    try writer.objectField("status");
+                    try writer.write("success");
+
+                    try writer.objectField("data");
+                    try writer.beginObject(); // Start data: {
+
+                    // Use self here inside the else block
+                    switch (self) {
+                        .Success => {}, // Empty data object is valid
+                        .Volume => |v| {
+                            try writer.objectField("volume");
+                            try writer.write(v);
+                        },
+                        .Url => |v| {
+                            try writer.objectField("url");
+                            try writer.write(v); // write handles string escaping
+                        },
+                        .Serial => |v| {
+                            try writer.objectField("serial");
+                            try writer.write(v);
+                        },
+                        .Power => |v| {
+                            try writer.objectField("power");
+                            try writer.write(v);
+                        },
+                        .Error => unreachable, // Handled above
+                    }
+                    try writer.endObject(); // End data: }
+                },
+            }
+        }
 
         // TODO: Implement a deinit if any variants hold allocated memory
-        // Currently assuming Url/Serial strings are handled by caller (e.g., handler frees after finalizeResult)
-        // OR Client methods need to manage allocation/deallocation around finalizeResult call.
     };
 
     pub fn finalizeResult(self: *Display, ip: std.net.Address, result: FinalResult) !void {
         // Handle JSON output separately first
         if (self.output_mode == .Json) {
             const writer = self.writer;
-            var json_writer = std.json.writeStream(writer, .{}); // Default options (minified)
-            errdefer writer.writeAll("\n") catch {}; // Ensure newline even on error during write
+            var json_writer = std.json.writeStream(writer, .{});
+            errdefer writer.writeAll("\n") catch {};
 
             try json_writer.beginObject(); // Start {
 
             try json_writer.objectField("ip");
-            // Format IP address to a temporary buffer for stringification
-            // Use hardcoded buffer size as std lib constant lookup failed repeatedly
-            const IP_BUF_SIZE = 32; // Max IPv4 + Port ("255.255.255.255:65535") is 21 chars.
-            var ip_buf: [IP_BUF_SIZE]u8 = undefined;
+            var ip_buf: [32]u8 = undefined; // Using hardcoded size
             const ip_str = try std.fmt.bufPrint(&ip_buf, "{}", .{ip});
             try json_writer.write(ip_str);
 
-            switch (result) {
-                .Error => |e| {
-                    try json_writer.objectField("status");
-                    try json_writer.write("error");
-
-                    try json_writer.objectField("error");
-                    try json_writer.beginObject(); // Start error: {
-                    try json_writer.objectField("type");
-                    try json_writer.write(e.error_type);
-                    // TODO: Add code/message later if desired
-                    // try json_writer.objectField("code");
-                    // try json_writer.write(1001); // Example code
-                    // try json_writer.objectField("message");
-                    // try json_writer.write("Device communication error"); // Example message
-                    try json_writer.endObject(); // End error: }
-                },
-                else => { // Handle all success cases
-                    try json_writer.objectField("status");
-                    try json_writer.write("success");
-
-                    try json_writer.objectField("data");
-                    try json_writer.beginObject(); // Start data: {
-
-                    switch (result) {
-                        .Success => {}, // Empty data object is valid
-                        .Volume => |v| {
-                            try json_writer.objectField("volume");
-                            try json_writer.write(v);
-                        },
-                        .Url => |v| {
-                            try json_writer.objectField("url");
-                            try json_writer.write(v); // write handles string escaping
-                        },
-                        .Serial => |v| {
-                            try json_writer.objectField("serial");
-                            try json_writer.write(v);
-                        },
-                        .Power => |v| {
-                            try json_writer.objectField("power");
-                            try json_writer.write(v);
-                        },
-                        .Error => unreachable, // Handled above
-                    }
-                    try json_writer.endObject(); // End data: }
-                },
-            }
+            // Call the dedicated jsonStringify method for the result details
+            try result.jsonStringify(&json_writer); // Pass the stream writer
 
             try json_writer.endObject(); // End }
             try writer.writeAll("\n"); // ndjson newline

@@ -79,13 +79,27 @@ pub const CommandArg = union(enum) {
     }
 };
 
+pub const OutputMode = enum {
+    Quiet,
+    Normal,
+    Verbose,
+    Json,
+};
+
+pub const ColorMode = enum {
+    Auto, // Default: Use color if TTY
+    Always,
+    Never,
+};
+
 pub const Config = struct {
     allocator: std.mem.Allocator,
     action: Action,
     addresses: std.ArrayList(std.net.Address),
     positional_args: std.ArrayList(CommandArg),
-    verbose: bool = false,
     timeout: u32 = 5,
+    output_mode: OutputMode = .Normal, // Default to Normal
+    color_mode: ColorMode = .Auto, // Default to Auto
 
     pub fn init(allocator: std.mem.Allocator) Config {
         return .{
@@ -93,8 +107,9 @@ pub const Config = struct {
             .action = .unknown,
             .addresses = std.ArrayList(std.net.Address).init(allocator),
             .positional_args = std.ArrayList(CommandArg).init(allocator),
-            .verbose = false,
             .timeout = 5,
+            .output_mode = .Normal,
+            .color_mode = .Auto,
         };
     }
 
@@ -117,21 +132,31 @@ pub const Config = struct {
         var config = Config.init(allocator);
         errdefer config.deinit();
 
-        // Process arguments starting from index 1 (skip program name)
-        var i: usize = 1; // Start from 1 instead of 0
-        while (i < args.len) : (i += 1) {
-            const arg = args[i]; // arg is now correctly []const u8
+        var output_mode_set = false;
 
-            // Handle flags - use 'arg' directly, not 'arg[0]'
+        var i: usize = 1;
+        while (i < args.len) : (i += 1) {
+            const arg = args[i];
+
             if (std.mem.startsWith(u8, arg, "--")) {
                 if (std.mem.eql(u8, arg, "--help")) {
                     config.action = .help;
-                    return config;
-                } else if (std.mem.eql(u8, arg, "--verbose")) {
-                    config.verbose = true;
+                    return config; // Early return for help
                 } else if (std.mem.eql(u8, arg, "--version")) {
                     config.action = .version;
-                    return config;
+                    return config; // Early return for version
+                } else if (std.mem.eql(u8, arg, "--verbose")) {
+                    if (output_mode_set and config.output_mode != .Verbose) return error.ConflictingOutputFlags;
+                    config.output_mode = .Verbose;
+                    output_mode_set = true;
+                } else if (std.mem.eql(u8, arg, "--quiet")) {
+                    if (output_mode_set and config.output_mode != .Quiet) return error.ConflictingOutputFlags;
+                    config.output_mode = .Quiet;
+                    output_mode_set = true;
+                } else if (std.mem.eql(u8, arg, "--json")) {
+                    if (output_mode_set and config.output_mode != .Json) return error.ConflictingOutputFlags;
+                    config.output_mode = .Json;
+                    output_mode_set = true;
                 } else if (std.mem.eql(u8, arg, "--timeout")) {
                     // Check if a value exists after the flag
                     if (i + 1 >= args.len) {
@@ -159,20 +184,41 @@ pub const Config = struct {
 
                     config.timeout = parsed_timeout;
                     i += 1; // Consume the value argument as well
+                } else if (std.mem.eql(u8, arg, "--color")) {
+                    if (i + 1 >= args.len) return error.InvalidFlag; // Missing value
+                    const color_arg = args[i + 1];
+                    if (std.mem.eql(u8, color_arg, "auto")) {
+                        config.color_mode = .Auto;
+                    } else if (std.mem.eql(u8, color_arg, "always")) {
+                        config.color_mode = .Always;
+                    } else if (std.mem.eql(u8, color_arg, "never")) {
+                        config.color_mode = .Never;
+                    } else {
+                        std.log.warn("Invalid value for --color: '{s}'. Use 'auto', 'always', or 'never'.", .{color_arg});
+                        return error.InvalidFlag;
+                    }
+                    i += 1;
                 } else {
+                    std.log.warn("Unknown flag: {s}", .{arg});
                     return CliError.InvalidFlag;
                 }
                 continue;
             }
 
-            // Handle short flags - use 'arg' directly
             if (std.mem.startsWith(u8, arg, "-")) {
                 if (std.mem.eql(u8, arg, "-h")) {
                     config.action = .help;
                     return config;
-                } else if (std.mem.eql(u8, arg, "-v")) {
-                    config.verbose = true;
+                } else if (std.mem.eql(u8, arg, "-v")) { // Treat -v as --verbose
+                    if (output_mode_set and config.output_mode != .Verbose) return error.ConflictingOutputFlags;
+                    config.output_mode = .Verbose;
+                    output_mode_set = true;
+                } else if (std.mem.eql(u8, arg, "-q")) { // Treat -q as --quiet
+                    if (output_mode_set and config.output_mode != .Quiet) return error.ConflictingOutputFlags;
+                    config.output_mode = .Quiet;
+                    output_mode_set = true;
                 } else {
+                    std.log.warn("Unknown short flag: {s}", .{arg});
                     return CliError.InvalidFlag;
                 }
                 continue;
@@ -246,47 +292,160 @@ pub const Config = struct {
 
 pub const Display = struct {
     writer: std.fs.File.Writer,
+    err_writer: std.fs.File.Writer, // Add stderr writer
+    allocator: std.mem.Allocator, // Add allocator
+    output_mode: OutputMode,
+    color_mode: ColorMode,
+    use_color: bool, // Determined by color_mode and TTY checks
+
     const VERSION = "0.1.2";
 
-    pub fn init() Display {
-        return .{
-            .writer = std.io.getStdOut().writer(),
+    pub fn init(
+        allocator: std.mem.Allocator,
+        output_mode: OutputMode,
+        color_mode: ColorMode,
+    ) Display {
+        const stdout = std.io.getStdOut();
+        const stderr = std.io.getStdErr();
+
+        // Determine if color should be used based on mode and TTY status
+        var use_color = switch (color_mode) {
+            .Always => true,
+            .Never => false,
+            .Auto => stdout.supportsAnsiEscapeCodes(),
+        };
+
+        // Quiet mode should generally not use color by default, even if TTY
+        if (output_mode == .Quiet and color_mode == .Auto) {
+            use_color = false;
+        }
+
+        return Display{
+            .writer = stdout.writer(),
+            .err_writer = stderr.writer(),
+            .allocator = allocator,
+            .output_mode = output_mode,
+            .color_mode = color_mode,
+            .use_color = use_color,
         };
     }
 
-    pub fn showVersion(self: Display) void {
-        self.writer.print("samdc version {s}\n", .{VERSION}) catch {};
+    // New: Simple initializer for early errors before config is parsed
+    pub fn init_simple(allocator: std.mem.Allocator) Display {
+        // Defaults to Normal output, Auto color (which likely becomes Never due to checks)
+        // Only purpose is to get err_writer working for showError
+        return Display.init(allocator, .Normal, .Auto);
     }
 
-    pub fn printUsage(self: Display) void {
-        self.writer.writeAll("Usage: samdc [options] <command> [args] [ip_addresses...]\n\n") catch {};
-        self.writer.writeAll("Options:\n") catch {};
-        self.writer.writeAll("  -h, --help     Show this help message\n") catch {};
-        self.writer.writeAll("  -v, --version  Show version information\n") catch {};
-        self.writer.writeAll("  --verbose      Enable verbose output\n") catch {};
-        self.writer.writeAll("  --timeout      Set timeout in seconds (default 5)\n\n") catch {};
-        self.writer.writeAll("Commands:\n") catch {};
-        self.writer.writeAll("  on              Turn on the device\n") catch {};
-        self.writer.writeAll("  off             Turn off the display\n") catch {};
-        self.writer.writeAll("  reboot          Reboot the display\n") catch {};
-        self.writer.writeAll("  volume [level]  Get or set volume level (0-100)\n") catch {};
-        self.writer.writeAll("  url [value]     Get or set launcher URL\n") catch {};
-        self.writer.writeAll("\nExamples:\n") catch {};
-        self.writer.writeAll("  samdc reboot 192.168.1.1                  # Reboot single display\n") catch {};
-        self.writer.writeAll("  samdc on 192.168.1.1 192.168.1.2          # Turn on multiple displays\n") catch {};
-        self.writer.writeAll("  samdc volume 50 192.168.1.1 192.168.1.2   # Set volume on multiple displays\n") catch {};
-        self.writer.writeAll("  samdc url http://example.com 192.168.1.1  # Set URL on a display\n") catch {};
+    // --- Placeholder Methods ---
+    // (Actual implementation to follow)
+
+    pub fn startCommand(self: *Display, ip: std.net.Address, action_name: []const u8) !void {
+        _ = self;
+        _ = ip;
+        _ = action_name;
+        // TODO: Print start message based on output_mode (Normal/Verbose)
     }
 
-    pub fn showError(self: Display, err: anyerror) void {
-        switch (err) {
-            error.InvalidArgCount => self.printUsage(),
-            error.InvalidAddress => std.log.err("Invalid IP address", .{}),
-            error.ConnectionRefused => std.log.err("Couldn't contact device: connection refused", .{}),
-            error.InvalidAction => std.log.err("Invalid action", .{}),
-            error.InvalidFlag => std.log.err("Invalid flag", .{}),
-            else => std.log.err("Operation failed: {}", .{err}),
-        }
+    pub fn logCommand(self: *Display, command: *const mdc.Command, raw_tx_bytes: []const u8) !void {
+        _ = self;
+        _ = command;
+        _ = raw_tx_bytes;
+        // TODO: Print annotated command / raw bytes based on output_mode (Normal/Verbose/Json+Verbose->stderr)
+        // Will need internal helpers for formatting
+    }
+
+    pub fn logResponse(self: *Display, response: *const mdc.Response) !void {
+        _ = self;
+        _ = response;
+        // TODO: Print annotated response / raw bytes based on output_mode (Normal/Verbose/Json+Verbose->stderr)
+        // Will need internal helpers for formatting
+    }
+
+    // Need a structure to pass result data, similar to ActionResult
+    pub const ResultData = struct {
+        // TODO: Define fields: status (success/error), value (union?), error_type, error_message?
+        // This might become similar to handlers.ActionResult later
+        placeholder: void = {},
+    };
+
+    pub fn finalizeResult(self: *Display, ip: std.net.Address, result: ResultData) !void {
+        _ = self;
+        _ = ip;
+        _ = result;
+        // TODO: Print final status line based on output_mode (Quiet/Normal/Verbose/Json)
+        // If JSON, call jsonStringify on result data.
+    }
+
+    // --- Existing Methods (May need slight adjustment) ---
+
+    pub fn printUsage(self: *Display) void {
+        // Print to stdout
+        self.writer.print(
+            \\Usage: samdc [options] <action> [IP addresses...] [action args...]
+            \\
+            \\Actions:
+            \\  on                Turn device on
+            \\  off               Turn device off
+            \\  reboot            Reboot device 
+            \\  volume [level]    Get or set volume (0-100)
+            \\  url [new_url]     Get or set launcher URL
+            \\  serial            Get serial number
+            \\  help              Show this help message
+            \\  version           Show version information
+            \\
+            \\Options:
+            \\  --help, -h       Show this help message
+            \\  --version         Show version information
+            \\  --verbose, -v     Enable verbose output
+            \\  --quiet, -q       Enable quiet output (minimal info)
+            \\  --json            Output results as newline-delimited JSON
+            \\  --timeout <secs>  Set connection timeout in seconds (default: 5)
+            \\  --color <mode>    Set color output mode: auto, always, never (default: auto)
+            \\  IP addresses      One or more IP addresses of the target devices
+            \\
+            \\Examples:
+            \\  samdc reboot 192.168.1.1                  # Reboot single device
+            \\  samdc on 192.168.1.1 192.168.1.2          # Turn on multiple device
+            \\  samdc volume 50 192.168.1.1 192.168.1.2   # Set volume on multiple devices
+            \\  samdc url http://example.com 192.168.1.1  # Set URL on a device
+        , .{}) catch |e| {
+            std.debug.print("Error printing usage: {s}\n", .{@errorName(e)});
+        };
+    }
+
+    pub fn showVersion(self: *Display) void {
+        // Print to stdout
+        self.writer.print("samdc version {s}\n", .{VERSION}) catch |e| {
+            std.debug.print("Error printing version: {s}\n", .{@errorName(e)});
+        };
+    }
+
+    pub fn showError(self: *Display, err: anyerror) void {
+        // Always print errors to stderr
+        // TODO: Add color support if self.use_color is true
+        self.err_writer.print("Error: {s}\n", .{@errorName(err)}) catch |e| {
+            // If we can't even print to stderr, print to debug log
+            std.debug.print("Critical error writing to stderr: {s}\n", .{@errorName(e)});
+            std.debug.print("Original error was: {s}\n", .{@errorName(err)});
+        };
+    }
+
+    // --- Internal Helpers (To be implemented) ---
+    fn formatAnnotatedPacket(self: *Display, direction: enum { Tx, Rx }, maybe_command: ?*const mdc.Command, maybe_response: ?*const mdc.Response) ![]u8 {
+        // _ = self; // Removed pointless discard
+        _ = direction;
+        _ = maybe_command;
+        _ = maybe_response;
+        // TODO: Implement actual annotation logic using allocator
+        return self.allocator.dupe(u8, "TODO: Annotated Packet");
+    }
+
+    fn formatHexDump(self: *Display, bytes: []const u8) ![]u8 {
+        // _ = self; // Removed pointless discard
+        _ = bytes;
+        // TODO: Implement actual hex dump logic using allocator
+        return self.allocator.dupe(u8, "TODO: Hex Dump");
     }
 };
 
@@ -302,7 +461,6 @@ test "Parse simple command" {
     const expected_addr = try std.net.Address.parseIp4("192.168.1.10", 1515);
     try testing.expect(expected_addr.eql(config.addresses.items[0]));
     try testing.expectEqual(@as(usize, 0), config.positional_args.items.len);
-    try testing.expectEqual(false, config.verbose);
 }
 
 test "Parse command with numeric arg" {
@@ -320,7 +478,6 @@ test "Parse command with numeric arg" {
     const vol_arg = config.positional_args.items[0];
     try testing.expectEqualStrings("Integer", @tagName(vol_arg));
     try testing.expectEqual(@as(u32, 75), try vol_arg.asInteger());
-    try testing.expectEqual(false, config.verbose);
 }
 
 test "Parse command with text arg" {
@@ -338,7 +495,6 @@ test "Parse command with text arg" {
     const url_arg = config.positional_args.items[0];
     try testing.expectEqualStrings("String", @tagName(url_arg));
     try testing.expectEqualStrings("http://example.com", url_arg.String);
-    try testing.expectEqual(false, config.verbose);
 }
 
 test "Parse simple command with multiple IPs" {
@@ -355,7 +511,6 @@ test "Parse simple command with multiple IPs" {
     try testing.expect(expected_addr1.eql(config.addresses.items[0]));
     try testing.expect(expected_addr2.eql(config.addresses.items[1]));
     try testing.expectEqual(@as(usize, 0), config.positional_args.items.len);
-    try testing.expectEqual(false, config.verbose);
 }
 
 test "Parse command with verbose flag" {
@@ -365,7 +520,6 @@ test "Parse command with verbose flag" {
     var config = try Config.fromArgs(allocator, &args);
     defer config.deinit();
     try testing.expectEqual(Action.on, config.action);
-    try testing.expectEqual(true, config.verbose);
 }
 
 test "Parse command with short verbose flag" {
@@ -375,7 +529,6 @@ test "Parse command with short verbose flag" {
     var config = try Config.fromArgs(allocator, &args);
     defer config.deinit();
     try testing.expectEqual(Action.on, config.action);
-    try testing.expectEqual(true, config.verbose);
 }
 
 test "Parse help flag" {

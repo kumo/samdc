@@ -443,22 +443,82 @@ pub const Display = struct {
     };
 
     pub fn finalizeResult(self: *Display, ip: std.net.Address, result: FinalResult) !void {
-        // Determine the primary writer based on mode (stdout or null/stderr for JSON)
-        const maybe_writer: ?std.fs.File.Writer = switch (self.output_mode) {
-            .Quiet, .Normal, .Verbose => self.writer,
-            .Json => null, // JSON handles output differently below
-        };
-
-        // Handle JSON output separately
+        // Handle JSON output separately first
         if (self.output_mode == .Json) {
-            // TODO: Implement jsonStringify for FinalResult and call it here
-            // try result.jsonStringify(self.writer);
-            // For now, print a placeholder
-            try self.writer.print("{{ \"ip\": \"{}\", \"result\": \"TODO: JSON output\" }}\n", .{ip});
-            return;
+            const writer = self.writer;
+            var json_writer = std.json.writeStream(writer, .{}); // Default options (minified)
+            errdefer writer.writeAll("\n") catch {}; // Ensure newline even on error during write
+
+            try json_writer.beginObject(); // Start {
+
+            try json_writer.objectField("ip");
+            // Format IP address to a temporary buffer for stringification
+            // Use hardcoded buffer size as std lib constant lookup failed repeatedly
+            const IP_BUF_SIZE = 32; // Max IPv4 + Port ("255.255.255.255:65535") is 21 chars.
+            var ip_buf: [IP_BUF_SIZE]u8 = undefined;
+            const ip_str = try std.fmt.bufPrint(&ip_buf, "{}", .{ip});
+            try json_writer.write(ip_str);
+
+            switch (result) {
+                .Error => |e| {
+                    try json_writer.objectField("status");
+                    try json_writer.write("error");
+
+                    try json_writer.objectField("error");
+                    try json_writer.beginObject(); // Start error: {
+                    try json_writer.objectField("type");
+                    try json_writer.write(e.error_type);
+                    // TODO: Add code/message later if desired
+                    // try json_writer.objectField("code");
+                    // try json_writer.write(1001); // Example code
+                    // try json_writer.objectField("message");
+                    // try json_writer.write("Device communication error"); // Example message
+                    try json_writer.endObject(); // End error: }
+                },
+                else => { // Handle all success cases
+                    try json_writer.objectField("status");
+                    try json_writer.write("success");
+
+                    try json_writer.objectField("data");
+                    try json_writer.beginObject(); // Start data: {
+
+                    switch (result) {
+                        .Success => {}, // Empty data object is valid
+                        .Volume => |v| {
+                            try json_writer.objectField("volume");
+                            try json_writer.write(v);
+                        },
+                        .Url => |v| {
+                            try json_writer.objectField("url");
+                            try json_writer.write(v); // write handles string escaping
+                        },
+                        .Serial => |v| {
+                            try json_writer.objectField("serial");
+                            try json_writer.write(v);
+                        },
+                        .Power => |v| {
+                            try json_writer.objectField("power");
+                            try json_writer.write(v);
+                        },
+                        .Error => unreachable, // Handled above
+                    }
+                    try json_writer.endObject(); // End data: }
+                },
+            }
+
+            try json_writer.endObject(); // End }
+            try writer.writeAll("\n"); // ndjson newline
+
+            return; // Don't fall through to text output
         }
 
-        // Handle text output modes (Quiet, Normal, Verbose)
+        // --- Handle text output modes (Quiet, Normal, Verbose) ---
+        // Determine the primary writer
+        const maybe_writer: ?std.fs.File.Writer = switch (self.output_mode) {
+            .Quiet, .Normal, .Verbose => self.writer,
+            .Json => null, // Should be unreachable due to check above
+        };
+
         if (maybe_writer) |writer| {
             switch (self.output_mode) {
                 .Quiet => {

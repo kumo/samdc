@@ -550,19 +550,23 @@ pub const Display = struct {
 
     // --- Internal Helpers (To be implemented) ---
     fn formatAnnotatedPacket(self: *Display, direction: enum { Tx, Rx }, maybe_command: ?*const mdc.Command, maybe_response: ?*const mdc.Response) ![]u8 {
-        // _ = self; // Removed pointless discard
-        _ = direction;
-        _ = maybe_command;
-        _ = maybe_response;
-        // TODO: Implement actual annotation logic using allocator
-        return self.allocator.dupe(u8, "TODO: Annotated Packet");
+        // Placeholder implementation
+        const prefix = switch (direction) {
+            .Tx => "-> TX",
+            .Rx => "<- RX",
+        };
+        var info: []const u8 = "Unknown Packet";
+        if (maybe_command) |cmd| {
+            info = @tagName(@as(mdc.CommandType, cmd.command));
+        } else if (maybe_response) |resp| {
+            info = @tagName(resp.command);
+        }
+        return std.fmt.allocPrint(self.allocator, "{s}: {s} (TODO: Detailed Annotation)", .{ prefix, info });
     }
 
     fn formatHexDump(self: *Display, bytes: []const u8) ![]u8 {
-        // _ = self; // Removed pointless discard
-        _ = bytes;
-        // TODO: Implement actual hex dump logic using allocator
-        return self.allocator.dupe(u8, "TODO: Hex Dump");
+        // Placeholder implementation
+        return std.fmt.allocPrint(self.allocator, "({d} bytes) (TODO: Hex Dump)", .{bytes.len});
     }
 };
 

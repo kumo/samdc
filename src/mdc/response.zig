@@ -15,6 +15,7 @@ pub const Response = struct {
     display_id: u8,
     data: []u8,
     allocator: std.mem.Allocator,
+    raw_packet_alloc: []u8,
 
     pub fn init(bytes: []const u8, allocator: std.mem.Allocator) !Response {
         // Header(1) + CommandType(1) + ResponseType(1) + Command(1) + DisplayID(1) + Length(1) + Checksum(1)
@@ -44,17 +45,25 @@ pub const Response = struct {
             owned_data = try allocator.alloc(u8, 0);
         }
 
+        // Allocate and copy the full raw packet
+        const owned_raw_packet = try allocator.dupe(u8, bytes);
+        errdefer allocator.free(owned_raw_packet); // Free raw packet if data allocation fails below (shouldn't happen with current logic, but good practice)
+        // Actually, need to free if the return Response fails below
+        errdefer allocator.free(owned_data); // Free data if Response init fails
+
         return Response{
             .response_type = std.meta.intToEnum(ResponseType, bytes[4]) catch return error.InvalidResponseType,
             .command = std.meta.intToEnum(mdc.CommandType, bytes[5]) catch return error.InvalidCommand,
             .display_id = bytes[2],
             .data = owned_data,
             .allocator = allocator,
+            .raw_packet_alloc = owned_raw_packet,
         };
     }
 
     pub fn deinit(self: *Response) void {
         self.allocator.free(self.data);
+        self.allocator.free(self.raw_packet_alloc);
     }
 
     // Format packet as hex string for debugging

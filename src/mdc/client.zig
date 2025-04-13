@@ -2,22 +2,22 @@ const std = @import("std");
 const net = std.net;
 
 const mdc = @import("mod.zig");
+const cli = @import("../cli.zig");
 const Connection = @import("../net/connection.zig").Connection;
-
-const log = std.log.scoped(.client);
+const command_def = @import("command.zig");
 
 pub const Client = struct {
     allocator: std.mem.Allocator,
     conn: Connection,
     display_id: u8,
-    verbose: bool,
+    display: *cli.Display,
 
-    pub fn init(allocator: std.mem.Allocator, address: net.Address, display_id: u8, verbose: bool, timeout: u32) Client {
+    pub fn init(allocator: std.mem.Allocator, address: net.Address, display_id: u8, display: *cli.Display, timeout: u32) Client {
         return Client{
             .allocator = allocator,
             .conn = Connection.init(address, timeout),
             .display_id = display_id,
-            .verbose = verbose,
+            .display = display,
         };
     }
 
@@ -25,37 +25,28 @@ pub const Client = struct {
         self.conn.deinit();
     }
 
-    fn sendCommand(
+    fn sendCommandAndLog(
         self: *Client,
         command: mdc.Command,
     ) !mdc.Response {
         try self.conn.connect();
 
-        // Create command packet
-        const cmd_packet = try command.serialize(self.allocator);
-        defer self.allocator.free(cmd_packet);
+        const raw_tx_bytes = try command.serialize(self.allocator);
+        defer self.allocator.free(raw_tx_bytes);
 
-        if (self.verbose) {
-            log.debug("Command: {any}", .{command});
-            printBytes(cmd_packet);
-        }
+        try self.display.logCommand(&command, raw_tx_bytes);
 
-        // Send the command
-        _ = try self.conn.send(cmd_packet);
+        _ = try self.conn.send(raw_tx_bytes);
 
-        // Read response
         var buffer: [1024]u8 = undefined;
         const bytes_read = try self.conn.receive(&buffer);
+        const raw_rx_bytes_slice = buffer[0..bytes_read];
 
-        // Parse the response, let caller deinit
-        var response = try mdc.Response.init(buffer[0..bytes_read], self.allocator);
+        var response = try mdc.Response.init(raw_rx_bytes_slice, self.allocator);
+        errdefer response.deinit();
 
-        if (self.verbose) {
-            log.debug("Response: {any}", .{response});
-            printBytes(buffer[0..bytes_read]);
-        }
+        try self.display.logResponse(&response);
 
-        // Check if response is NAK
         if (response.response_type == .Nak) {
             // Clean up allocated memory before returning error
             response.deinit();
@@ -65,97 +56,67 @@ pub const Client = struct {
         return response;
     }
 
-    // Power control
     pub fn getPowerStatus(self: *Client) !bool {
         const command = mdc.Command.init(.{ .Power = .Status }, self.display_id);
-
-        var response = try self.sendCommand(command);
+        var response = try self.sendCommandAndLog(command);
         defer response.deinit();
-
-        return response.getPowerStatus();
+        const status = try response.getPowerStatus();
+        return status;
     }
 
     pub fn setPower(self: *Client, on: bool) !void {
-        const command = if (on)
-            mdc.Command.init(.{ .Power = .{ .Set = .On } }, self.display_id)
+        const cmd_data: command_def.CommandData = if (on)
+            .{ .Power = .{ .Set = .On } }
         else
-            mdc.Command.init(.{ .Power = .{ .Set = .Off } }, self.display_id);
-        var response = try self.sendCommand(command);
+            .{ .Power = .{ .Set = .Off } };
+
+        const command = mdc.Command.init(cmd_data, self.display_id);
+        var response = try self.sendCommandAndLog(command);
         defer response.deinit();
     }
 
     pub fn reboot(self: *Client) !void {
         const command = mdc.Command.init(.{ .Power = .{ .Set = .Reboot } }, self.display_id);
-
-        var response = try self.sendCommand(command);
+        var response = try self.sendCommandAndLog(command);
         defer response.deinit();
     }
 
-    // Launcher URL
     pub fn setLauncherUrl(self: *Client, url: []const u8) !void {
         const command = mdc.Command.init(.{ .LauncherUrl = .{ .Set = url } }, self.display_id);
-
-        var response = try self.sendCommand(command);
+        var response = try self.sendCommandAndLog(command);
         defer response.deinit();
     }
 
     pub fn getLauncherUrl(self: *Client) ![]const u8 {
         const command = mdc.Command.init(.{ .LauncherUrl = .Status }, self.display_id);
-
-        var response = try self.sendCommand(command);
+        var response = try self.sendCommandAndLog(command);
         defer response.deinit();
-
         const url = try response.getLauncherUrl();
-        return try self.allocator.dupe(u8, url);
+        const owned_url = try self.allocator.dupe(u8, url);
+        return owned_url;
     }
 
-    // Volume control
     pub fn getVolume(self: *Client) !u8 {
         const command = mdc.Command.init(.{ .Volume = .Status }, self.display_id);
-
-        var response = try self.sendCommand(command);
+        var response = try self.sendCommandAndLog(command);
         defer response.deinit();
-
-        return response.getVolume();
+        const volume = try response.getVolume();
+        return volume;
     }
 
     pub fn setVolume(self: *Client, level: u8) !void {
         if (level > 100) return mdc.Error.InvalidParameter;
-
         const command = mdc.Command.init(.{ .Volume = .{ .Set = level } }, self.display_id);
-
-        var response = try self.sendCommand(command);
+        var response = try self.sendCommandAndLog(command);
         defer response.deinit();
     }
 
-    // Serial
     pub fn getSerial(self: *Client) ![]const u8 {
         const command = mdc.Command.init(.{ .Serial = .Status }, self.display_id);
-
-        var response = try self.sendCommand(command);
+        var response = try self.sendCommandAndLog(command);
         defer response.deinit();
-
         const serial = try response.getSerial();
-        return try self.allocator.dupe(u8, serial);
+        const owned_serial = try self.allocator.dupe(u8, serial);
+        return owned_serial;
     }
 };
-
-fn printBytes(bytes: []u8) void {
-    var buf: [1024]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buf);
-    var string = std.ArrayList(u8).init(fba.allocator());
-
-    // Format the bytes into the buffer
-    string.appendSlice("[ ") catch return;
-    for (bytes) |byte| {
-        if (std.ascii.isPrint(byte)) {
-            string.writer().print("{X:0>2} ({c}) ", .{ byte, byte }) catch return;
-        } else {
-            string.writer().print("{X:0>2} ", .{byte}) catch return;
-        }
-    }
-    string.appendSlice("]") catch return;
-
-    // Log the formatted string
-    log.debug("{s}", .{string.items});
-}

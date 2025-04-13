@@ -10,16 +10,19 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var display = cli.Display.init();
-
-    // Parse command line arguments
+    // Parse command line arguments first to get output mode
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
     var config = cli.Config.fromArgs(allocator, args) catch |err| {
-        display.showError(err);
+        // Need a temporary, simple display for pre-config errors
+        var error_display = cli.Display.init_simple(allocator);
+        error_display.showError(err);
         return;
     };
     defer config.deinit();
+
+    // Now initialize the main Display using the parsed config
+    var display = cli.Display.init(allocator, config.output_mode, config.color_mode);
 
     // Handle special actions first
     switch (config.action) {
@@ -36,18 +39,19 @@ pub fn main() !void {
 
     // Execute command for each address
     for (config.addresses.items) |address| {
-        var client = mdc.Client.init(allocator, address, 0, config.verbose, config.timeout); // Default Display ID
+        // Pass the display instance to the Client
+        var client = mdc.Client.init(allocator, address, 0, &display, config.timeout);
         defer client.deinit();
 
-        // Show address if multiple targets or verbose mode
-        if (config.addresses.items.len > 1 or config.verbose) {
-            std.log.debug("Executing command on {}", .{address});
-        }
+        // Logging the target address can be handled by display.startCommand later
+        // if (config.addresses.items.len > 1 or config.verbose) {
+        //     std.log.debug("Executing command on {}", .{address});
+        // }
 
         switch (config.action) {
             .on => {
                 client.setPower(true) catch |err| {
-                    display.showError(err);
+                    display.showError(err); // Keep using display for errors
                     continue;
                 };
                 display.writer.writeAll("Turn on command sent\n") catch {};

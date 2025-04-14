@@ -99,11 +99,12 @@ pub const Client = struct {
         else
             .{ .Power = .{ .Set = .Off } };
         const command = mdc.Command.init(cmd_data, self.display_id);
-        _ = self.sendCommandAndLog(command) catch |err| {
+        var response = self.sendCommandAndLog(command) catch |err| {
             // Display error and return
             self.display.finalizeResult(self.conn.address, .{ .Error = .{ .error_type = @errorName(err) } }) catch {};
             return;
         };
+        defer response.deinit();
 
         // Display success
         self.display.finalizeResult(self.conn.address, .{ .Success = {} }) catch {};
@@ -111,11 +112,12 @@ pub const Client = struct {
 
     pub fn reboot(self: *Client) void {
         const command = mdc.Command.init(.{ .Power = .{ .Set = .Reboot } }, self.display_id);
-        _ = self.sendCommandAndLog(command) catch |err| {
+        var response = self.sendCommandAndLog(command) catch |err| {
             // Display error and return
             self.display.finalizeResult(self.conn.address, .{ .Error = .{ .error_type = @errorName(err) } }) catch {};
             return;
         };
+        defer response.deinit();
 
         // Display success
         self.display.finalizeResult(self.conn.address, .{ .Success = {} }) catch {};
@@ -123,11 +125,12 @@ pub const Client = struct {
 
     pub fn setLauncherUrl(self: *Client, url: []const u8) void {
         const command = mdc.Command.init(.{ .LauncherUrl = .{ .Set = url } }, self.display_id);
-        _ = self.sendCommandAndLog(command) catch |err| {
+        var response = self.sendCommandAndLog(command) catch |err| {
             // Display error and return
             self.display.finalizeResult(self.conn.address, .{ .Error = .{ .error_type = @errorName(err) } }) catch {};
             return;
         };
+        defer response.deinit();
 
         // Display success
         self.display.finalizeResult(self.conn.address, .{ .Success = {} }) catch {};
@@ -185,11 +188,12 @@ pub const Client = struct {
         }
 
         const command = mdc.Command.init(.{ .Volume = .{ .Set = level } }, self.display_id);
-        _ = self.sendCommandAndLog(command) catch |err| {
+        var response = self.sendCommandAndLog(command) catch |err| {
             // Display error and return
             self.display.finalizeResult(self.conn.address, .{ .Error = .{ .error_type = @errorName(err) } }) catch {};
             return;
         };
+        defer response.deinit();
 
         // Display success
         self.display.finalizeResult(self.conn.address, .{ .Success = {} }) catch {};

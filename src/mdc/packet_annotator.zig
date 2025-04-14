@@ -64,7 +64,8 @@ pub const PacketAnnotator = struct {
                         .Power => "CMD:Power",
                         .Volume => "CMD:Volume",
                         .LauncherUrl => "CMD:LaunchUrl",
-                        else => "CMD:???",
+                        .Serial => "CMD:Serial",
+                        // else => "CMD:???",
                     };
                 } else {
                     desc = "CMD:INV";
@@ -105,7 +106,9 @@ pub const PacketAnnotator = struct {
                             } // URL data bytes
                         },
                         // Add cases for SerialNumber, ModelName etc. later
-                        // .SerialNumber => { desc = "DATA:Char"; },
+                        .Serial => {
+                            desc = "DATA:Char";
+                        },
                         // .ModelName => { desc = "DATA:Char"; },
                         else => {},
                     }
@@ -169,7 +172,8 @@ pub const PacketAnnotator = struct {
                         .Power => "ECHO:Power",
                         .Volume => "ECHO:Volume",
                         .LauncherUrl => "ECHO:LaunchUrl",
-                        else => "ECHO:???",
+                        .Serial => "ECHO:Serial",
+                        // else => "ECHO:???",
                     };
                 } else {
                     desc = "ECHO:INV";
@@ -206,7 +210,9 @@ pub const PacketAnnotator = struct {
                             } // URL data bytes (after subcommand echo)
                         },
                         // Add cases for SerialNumber, ModelName etc. later
-                        // .SerialNumber => { desc = "DATA:Char"; },
+                        .Serial => {
+                            desc = "DATA:Char";
+                        },
                         // .ModelName => { desc = "DATA:Char"; },
                         else => {},
                     }

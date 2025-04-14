@@ -423,18 +423,75 @@ pub const Display = struct {
     }
 
     // Need a structure to pass result data, similar to ActionResult
-    pub const ResultData = struct {
-        // TODO: Define fields: status (success/error), value (union?), error_type, error_message?
-        // This might become similar to handlers.ActionResult later
-        placeholder: void = {},
+    pub const FinalResult = union(enum) {
+        Success: void,
+        Volume: u8,
+        Url: []const u8, // Caller MUST ensure this is valid when finalizeResult is called
+        Serial: []const u8, // Caller MUST ensure this is valid when finalizeResult is called
+        Power: bool, // true=on, false=off
+        Error: struct {
+            error_type: []const u8, // e.g., @errorName(err)
+            // message: ?[]const u8 = null, // Optional more detailed message
+        },
+
+        // TODO: Implement jsonStringify for this struct if needed for JSON output
+        // pub fn jsonStringify(self: FinalResult, writer: anytype) !void { ... }
+
+        // TODO: Implement a deinit if any variants hold allocated memory
+        // Currently assuming Url/Serial strings are handled by caller (e.g., handler frees after finalizeResult)
+        // OR Client methods need to manage allocation/deallocation around finalizeResult call.
     };
 
-    pub fn finalizeResult(self: *Display, ip: std.net.Address, result: ResultData) !void {
-        _ = self;
-        _ = ip;
-        _ = result;
-        // TODO: Print final status line based on output_mode (Quiet/Normal/Verbose/Json)
-        // If JSON, call jsonStringify on result data.
+    pub fn finalizeResult(self: *Display, ip: std.net.Address, result: FinalResult) !void {
+        // Determine the primary writer based on mode (stdout or null/stderr for JSON)
+        const maybe_writer: ?std.fs.File.Writer = switch (self.output_mode) {
+            .Quiet, .Normal, .Verbose => self.writer,
+            .Json => null, // JSON handles output differently below
+        };
+
+        // Handle JSON output separately
+        if (self.output_mode == .Json) {
+            // TODO: Implement jsonStringify for FinalResult and call it here
+            // try result.jsonStringify(self.writer);
+            // For now, print a placeholder
+            try self.writer.print("{{ \"ip\": \"{}\", \"result\": \"TODO: JSON output\" }}\n", .{ip});
+            return;
+        }
+
+        // Handle text output modes (Quiet, Normal, Verbose)
+        if (maybe_writer) |writer| {
+            switch (self.output_mode) {
+                .Quiet => {
+                    // Format: IP: VALUE / OK / ERROR <type>
+                    switch (result) {
+                        .Success => try writer.print("{}: OK\n", .{ip}),
+                        .Volume => |v| try writer.print("{}: {d}\n", .{ ip, v }),
+                        .Url => |v| try writer.print("{}: {s}\n", .{ ip, v }),
+                        .Serial => |v| try writer.print("{}: {s}\n", .{ ip, v }),
+                        .Power => |v| try writer.print("{}: {s}\n", .{ ip, if (v) "On" else "Off" }),
+                        .Error => |e| try writer.print("{}: ERROR {s}\n", .{ ip, e.error_type }),
+                    }
+                },
+                .Normal, .Verbose => {
+                    // Format: [IP] Success: <details> / Error: <type>
+                    // Use {} for net.Address formatting
+                    // TODO: Add tree/box formatting prefixes later
+                    switch (result) {
+                        .Success => try writer.print("[{}] Success\n", .{ip}),
+                        .Volume => |v| try writer.print("[{}] Success: Volume={d}\n", .{ ip, v }),
+                        .Url => |v| try writer.print("[{}] Success: URL={s}\n", .{ ip, v }),
+                        .Serial => |v| try writer.print("[{}] Success: Serial={s}\n", .{ ip, v }),
+                        .Power => |v| try writer.print("[{}] Success: Power={s}\n", .{ ip, if (v) "On" else "Off" }),
+                        .Error => |e| try writer.print("[{}] Error: {s}\n", .{ ip, e.error_type }),
+                    }
+                    // Add newline for separation in Normal/Verbose modes
+                    try writer.print("\n", .{});
+                },
+                else => unreachable, // JSON handled above
+            }
+        } else {
+            // Should only happen if JSON mode was selected but not handled above (unreachable)
+        }
     }
 
     // --- Existing Methods (May need slight adjustment) ---

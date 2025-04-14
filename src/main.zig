@@ -50,84 +50,52 @@ pub fn main() !void {
 
         switch (config.action) {
             .on => {
-                client.setPower(true) catch |err| {
-                    display.showError(err); // Keep using display for errors
-                    continue;
-                };
-                display.writer.writeAll("Turn on command sent\n") catch {};
+                client.setPower(true) catch continue;
             },
             .off => {
-                client.setPower(false) catch |err| {
-                    display.showError(err);
-                    continue;
-                };
-                display.writer.writeAll("Turn off command sent\n") catch {};
+                client.setPower(false) catch continue;
             },
             .reboot => {
-                client.reboot() catch |err| {
-                    display.showError(err);
-                    continue;
-                };
-                display.writer.writeAll("Reboot command sent\n") catch {};
+                client.reboot() catch continue;
             },
             .volume => {
-                // Volume can be set or queried
                 if (config.positional_args.items.len > 0) {
                     // Set volume
                     const volume_value = config.getPositionalInteger(0) orelse {
                         std.log.err("Invalid volume level", .{});
                         continue;
                     };
-
                     if (volume_value > 100) {
                         std.log.err("Volume must be between 0-100", .{});
                         continue;
                     }
-
-                    client.setVolume(@intCast(volume_value)) catch |err| {
-                        display.showError(err);
-                        continue;
-                    };
-                    display.writer.print("Volume set to {d}\n", .{volume_value}) catch {};
+                    client.setVolume(@intCast(volume_value)) catch continue;
                 } else {
                     // Get volume
-                    const volume = client.getVolume() catch |err| {
-                        display.showError(err);
-                        continue;
-                    };
-                    display.writer.print("Current volume: {d}\n", .{volume}) catch {};
+                    const volume = client.getVolume() catch continue;
+                    _ = volume;
                 }
             },
             .url => {
-                // URL can be set or queried
                 if (config.positional_args.items.len > 0) {
                     // Set URL
                     const url = config.getPositionalString(0) orelse {
                         std.log.err("Invalid URL", .{});
                         continue;
                     };
-
-                    client.setLauncherUrl(url) catch |err| {
-                        display.showError(err);
-                        continue;
-                    };
-                    display.writer.print("URL set to {s}\n", .{url}) catch {};
+                    client.setLauncherUrl(url) catch continue;
                 } else {
                     // Get URL
-                    const url = client.getLauncherUrl() catch |err| {
-                        display.showError(err);
-                        continue;
-                    };
+                    const url = client.getLauncherUrl() catch continue;
                     defer allocator.free(url);
-                    display.writer.print("Current URL: {s}\n", .{url}) catch {};
                 }
             },
             .serial => {
                 const serial = client.getSerial() catch continue;
                 defer allocator.free(serial);
-                display.writer.print("Serial: {s}\n", .{serial}) catch {};
             },
             else => {
+                // This case should ideally not be reachable if actions are validated
                 display.writer.writeAll("Command not implemented\n") catch {};
             },
         }

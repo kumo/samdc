@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const log = std.log.scoped(.net);
+// const log = std.log.scoped(.net);
 
 pub const ConnectionError = error{
     ConnectionFailed,
@@ -45,7 +45,7 @@ pub const Connection = struct {
             if (err == error.WouldBlock) {
                 try self.waitForConnection(sock);
             } else {
-                log.err("Received error while connecting to device: {}", .{err});
+                // log.err("Received error while connecting to device: {}", .{err});
                 return err;
             }
         };
@@ -66,12 +66,12 @@ pub const Connection = struct {
         if (self.socket) |s| {
             // Wait for write ready with timeout
             if (!try self.waitForIO(s.handle, std.posix.POLL.OUT)) {
-                log.err("Timeout while waiting to write", .{});
+                // log.err("Timeout while waiting to write", .{});
                 return error.WriteTimeout;
             }
             _ = try s.write(data);
         } else {
-            log.err("No connection to device, so cannot send message", .{});
+            // log.err("No connection to device, so cannot send message", .{});
             return error.ConnectionFailed;
         }
     }
@@ -80,24 +80,24 @@ pub const Connection = struct {
         if (self.socket) |s| {
             // Wait for read ready with timeout
             if (!try self.waitForIO(s.handle, std.posix.POLL.IN)) {
-                log.err("Timeout while waiting to read", .{});
+                // log.err("Timeout while waiting to read", .{});
                 return error.ReadTimeout;
             }
             const bytes_read = try s.read(buffer);
             if (bytes_read == 0) {
-                log.err("No bytes were received as response", .{});
+                // log.err("No bytes were received as response", .{});
                 return error.ReceiveFailed;
             }
             return bytes_read;
         } else {
-            log.err("No connection to device, so cannot receive message", .{});
+            // log.err("No connection to device, so cannot receive message", .{});
             return error.ConnectionFailed;
         }
     }
 
     fn waitForConnection(self: *Connection, sock: std.posix.socket_t) !void {
         if (!try self.waitForIO(sock, std.posix.POLL.OUT)) {
-            log.err("Timeout while waiting to open connection", .{});
+            // log.err("Timeout while waiting to open connection", .{});
             return error.ConnectionTimeout;
         }
 
@@ -111,7 +111,7 @@ pub const Connection = struct {
         );
 
         if (err_val != 0) {
-            log.err("Couldn't open connection to device: error {d}", .{err_val});
+            // log.err("Couldn't open connection to device: error {d}", .{err_val});
             return error.ConnectionFailed;
         }
     }

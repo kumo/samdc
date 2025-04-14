@@ -60,8 +60,8 @@ pub fn main() !void {
             .off => handlers.handleOff(&client, &display),
             .reboot => handlers.handleReboot(&client, &display),
             .volume => handlers.handleVolume(&client, &display, &config),
-            .url => handlers.handleUrl(&client, &display, &config, allocator),
-            .serial => handlers.handleSerial(&client, allocator),
+            .url => handlers.handleUrl(&client, &display, &config),
+            .serial => handlers.handleSerial(&client, &display),
             else => {
                 // This case should ideally not be reachable if actions are validated
                 display.writer.writeAll("Command not implemented\n") catch {};
